@@ -3,136 +3,270 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="Monitor Quantitativo de Carteira", layout="wide")
+st.set_page_config(page_title="Top 5 Ações do Dia & Alocação", layout="wide")
 
-st.title("📊 Analisador de Carteira e Direcionamento Técnico")
-st.markdown("Defina seu capital, os ativos e os percentuais alvo para analisar tendências e calcular a alocação.")
+st.title("🏆 Top 5 Ações do Dia — Análise Multifatorial e Seleção")
+st.markdown(
+    "O aplicativo avalia um universo de ações com base em critérios técnicos, de risco e liquidez, "
+    "destaca as **5 melhores do dia** e permite escolher em quais aplicar o seu capital."
+)
 
 # ==========================================
-# 1. ENTRADA DE DADOS (BARRA LATERAL)
+# 1. PARÂMETROS NA BARRA LATERAL
 # ==========================================
-st.sidebar.header("⚙️ Parâmetros de Investimento")
+st.sidebar.header("⚙️ Configurações de Análise e Capital")
 
 capital_total = st.sidebar.number_input(
-    "Capital Total para Investir (R$)",
+    "Capital Total Disponível (R$)",
     min_value=100.0,
     value=10000.0,
     step=500.0
 )
 
-periodo_dias = st.sidebar.selectbox(
-    "Janela de Análise Histórica",
-    options=[30, 60, 90, 180],
-    index=2,
-    format_func=lambda x: f"Últimos {x} dias"
+universo_padrao = (
+    "PETR4.SA, VALE3.SA, ITUB4.SA, BBDC4.SA, BBAS3.SA, "
+    "WEGE3.SA, PRIO3.SA, RENT3.SA, EQTL3.SA, RADL3.SA, "
+    "SBSP3.SA, ABEV3.SA, SUZB3.SA, CSAN3.SA, EMBR3.SA, "
+    "RAIL3.SA, VIVT3.SA, CPLE6.SA, ENGIE3.SA, MULT3.SA"
 )
 
-tickers_padrao = "PETR4.SA, VALE3.SA, ITUB4.SA, WEGE3.SA, BBAS3.SA"
-tickers_input = st.sidebar.text_input(
-    "Ações (separadas por vírgula, com .SA)",
-    value=tickers_padrao
+tickers_input = st.sidebar.text_area(
+    "Universo de Ações para Avaliar (separadas por vírgula)",
+    value=universo_padrao,
+    height=90
 )
 
 lista_tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
 
-st.sidebar.subheader("🎯 Percentual Alvo por Ação (%)")
-pesos = {}
-soma_pesos = 0.0
+st.sidebar.subheader("⚖️ Pesos dos Critérios (Score)")
+peso_tendencia = st.sidebar.slider("Tendência (MM21 / MM50)", 0, 50, 30)
+peso_momentum = st.sidebar.slider("Momentum (Retorno 20d)", 0, 50, 25)
+peso_risco = st.sidebar.slider("Baixa Volatilidade & Drawdown", 0, 50, 25)
+peso_liquidez = st.sidebar.slider("Liquidez (Volume Financeiro)", 0, 50, 20)
 
-for tk in lista_tickers:
-    peso_default = round(100.0 / len(lista_tickers), 1) if lista_tickers else 0.0
-    p = st.sidebar.number_input(
-        f"% {tk}",
-        min_value=0.0,
-        max_value=100.0,
-        value=peso_default,
-        step=1.0,
-        key=f"peso_{tk}"
-    )
-    pesos[tk] = p
-    soma_pesos += p
-
-if abs(soma_pesos - 100.0) > 0.1:
-    st.sidebar.warning(f"⚠️ A soma dos percentuais está em {soma_pesos:.1f}%. O ideal é fechar em 100%.")
-else:
-    st.sidebar.success("✅ Alocação fechada em 100%!")
+soma_pesos_criterios = peso_tendencia + peso_momentum + peso_risco + peso_liquidez
+if soma_pesos_criterios == 0:
+    peso_tendencia = 100
+    soma_pesos_criterios = 100
 
 # ==========================================
-# 2. MOTOR DE CÁLCULO E INDICADORES
+# 2. FUNÇÕES DE CÁLCULO E PONTUAÇÃO
 # ==========================================
 def calcular_rsi(series, period=14):
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
+    rs = gain / loss.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+    return rsi.fillna(50.0)
 
-if st.button("🚀 Analisar Mercado e Calcular Alocação", type="primary"):
-    if not lista_tickers:
-        st.error("Informe pelo menos um ticker válido.")
-    else:
-        with st.spinner("Coletando cotações históricas e calculando indicadores..."):
-            dados_raw = yf.download(lista_tickers, period="1y", progress=False)
-            dados = dados_raw["Close"] if "Close" in dados_raw else dados_raw
+@st.cache_data(ttl=900)
+def avaliar_universo(tickers, w_tend, w_mom, w_risco, w_liq):
+    dados_raw = yf.download(tickers, period="6mo", interval="1d", group_by="ticker", auto_adjust=True, progress=False)
+    if dados_raw is None or dados_raw.empty:
+        return pd.DataFrame()
 
-            if isinstance(dados, pd.Series):
-                dados = dados.to_frame(name=lista_tickers[0])
+    w_sum = float(w_tend + w_mom + w_risco + w_liq)
+    registros = []
 
-            resultados = []
-            for tk in lista_tickers:
-                if tk not in dados.columns:
+    for tk in tickers:
+        try:
+            if isinstance(dados_raw.columns, pd.MultiIndex):
+                if tk not in dados_raw.columns.get_level_values(0):
                     continue
-                serie = dados[tk].dropna()
-                if len(serie) < 50:
-                    continue
-
-                serie_janela = serie.tail(periodo_dias)
-                preco_atual = float(serie.iloc[-1])
-                preco_inicio_janela = float(serie_janela.iloc[0])
-                variacao_janela = ((preco_atual / preco_inicio_janela) - 1) * 100
-
-                mm21 = float(serie.tail(21).mean())
-                mm50 = float(serie.tail(50).mean())
-                rsi_atual = float(calcular_rsi(serie).iloc[-1])
-
-                if preco_atual > mm21 and mm21 > mm50 and rsi_atual < 70:
-                    sinal = "🟢 COMPRA / ACUMULAR"
-                    motivo = "Tendência de alta alinhada (Preço > MM21 > MM50) sem sobrecompra."
-                elif rsi_atual >= 70:
-                    sinal = "🟡 AGUARDAR / REALIZAR PARCIAL"
-                    motivo = f"Ativo esticado (IFR em {rsi_atual:.1f} - zona de sobrecompra)."
-                elif preco_atual < mm21 and preco_atual < mm50 and rsi_atual <= 32:
-                    sinal = "🔵 OPORTUNIDADE DE REVERSÃO"
-                    motivo = f"Queda acentuada com IFR sobrevendido ({rsi_atual:.1f})."
-                else:
-                    sinal = "🔴 CAUTELA / EVITAR COMPRA"
-                    motivo = "Abaixo das médias de curto/médio prazo sem sinal de fundo."
-
-                valor_alvo = capital_total * (pesos[tk] / 100.0)
-                qtd_estimada = int(valor_alvo // preco_atual) if preco_atual > 0 else 0
-
-                resultados.append({
-                    "Ação": tk,
-                    "Preço Atual (R$)": round(preco_atual, 2),
-                    f"Var. {periodo_dias}d (%)": round(variacao_janela, 2),
-                    "MM21 (R$)": round(mm21, 2),
-                    "IFR (14d)": round(rsi_atual, 1),
-                    "Peso (%)": pesos[tk],
-                    "Alocação (R$)": round(valor_alvo, 2),
-                    "Qtd. Ações": qtd_estimada,
-                    "Direcionamento": sinal,
-                    "Leitura Técnica": motivo
-                })
-
-            if resultados:
-                df_resultado = pd.DataFrame(resultados)
-                st.subheader("📋 Painel de Decisão e Alocação")
-                st.dataframe(df_resultado, use_container_width=True, hide_index=True)
-
-                st.subheader(f"📈 Desempenho Relativo nos Últimos {periodo_dias} Pregões (Base 100)")
-                colunas_validas = [t for t in lista_tickers if t in dados.columns]
-                if colunas_validas:
-                    dados_norm = (dados[colunas_validas].tail(periodo_dias) / dados[colunas_validas].tail(periodo_dias).iloc[0]) * 100
-                    st.line_chart(dados_norm)
+                df_tk = dados_raw[tk].dropna(how="all")
             else:
-                st.warning("Não foi possível obter histórico suficiente para os tickers informados.")
+                df_tk = dados_raw.dropna(how="all")
+
+            if "Close" not in df_tk.columns or len(df_tk["Close"].dropna()) < 50:
+                continue
+
+            close = df_tk["Close"].dropna()
+            preco_atual = float(close.iloc[-1])
+            if preco_atual <= 0:
+                continue
+
+            mm21 = float(close.tail(21).mean())
+            mm50 = float(close.tail(50).mean())
+            ret_20d = float((close.iloc[-1] / close.iloc[-21] - 1) * 100) if len(close) >= 21 else 0.0
+            ret_5d = float((close.iloc[-1] / close.iloc[-6] - 1) * 100) if len(close) >= 6 else 0.0
+            rsi_14 = float(calcular_rsi(close, 14).iloc[-1])
+
+            ret_diario = close.pct_change().dropna()
+            vol_anual_pct = float(ret_diario.tail(21).std() * np.sqrt(252) * 100) if len(ret_diario) >= 21 else 40.0
+
+            pico_60d = float(close.tail(60).max())
+            drawdown_pct = float((preco_atual / pico_60d - 1) * 100) if pico_60d > 0 else 0.0
+
+            if "Volume" in df_tk.columns:
+                vol_fin_med = float((df_tk["Close"] * df_tk["Volume"]).tail(20).mean())
+            else:
+                vol_fin_med = 0.0
+
+            # --- Sub-scores (0 a 100) ---
+            score_tend = 0.0
+            if preco_atual > mm21:
+                score_tend += 45.0
+            if mm21 > mm50:
+                score_tend += 35.0
+            if 35.0 <= rsi_14 <= 68.0:
+                score_tend += 20.0
+            elif rsi_14 > 75.0:
+                score_tend -= 15.0
+            score_tend = float(np.clip(score_tend, 0.0, 100.0))
+
+            # Momentum normalizado (-15% a +20% -> 0 a 100)
+            score_mom = float(np.clip(((ret_20d + 15.0) / 35.0) * 100.0, 0.0, 100.0))
+
+            # Risco: menor volatilidade e menor drawdown -> maior nota
+            penalidade_vol = max(0.0, (vol_anual_pct - 15.0) * 1.6)
+            penalidade_dd = max(0.0, abs(min(0.0, drawdown_pct)) * 2.0)
+            score_risco = float(np.clip(100.0 - penalidade_vol - penalidade_dd, 0.0, 100.0))
+
+            # Liquidez em R$/dia (ex: >= R$ 20M/dia = 100)
+            if vol_fin_med > 0:
+                score_liq = float(np.clip((np.log10(max(vol_fin_med, 1.0)) - 5.0) / (7.3 - 5.0) * 100.0, 0.0, 100.0))
+            else:
+                score_liq = 50.0
+
+            score_final = (
+                score_tend * w_tend
+                + score_mom * w_mom
+                + score_risco * w_risco
+                + score_liq * w_liq
+            ) / w_sum
+
+            if score_final >= 70 and rsi_14 < 72:
+                recomendacao = "🟢 Forte Candidata"
+            elif score_final >= 52:
+                recomendacao = "🟡 Moderada / Seletiva"
+            else:
+                recomendacao = "🔴 Cautela"
+
+            registros.append({
+                "Ticker": tk,
+                "Score": round(score_final, 1),
+                "Recomendação": recomendacao,
+                "Preço (R$)": round(preco_atual, 2),
+                "Ret. 20d (%)": round(ret_20d, 2),
+                "Ret. 5d (%)": round(ret_5d, 2),
+                "MM21 (R$)": round(mm21, 2),
+                "MM50 (R$)": round(mm50, 2),
+                "IFR (14d)": round(rsi_14, 1),
+                "Vol. Anual (%)": round(vol_anual_pct, 1),
+                "Drawdown 60d (%)": round(drawdown_pct, 1),
+                "Vol. Médio (R$ Mi)": round(vol_fin_med / 1e6, 1)
+            })
+        except Exception:
+            continue
+
+    if not registros:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(registros).sort_values(by="Score", ascending=False).reset_index(drop=True)
+    df.insert(0, "Rank", df.index + 1)
+    return df
+
+# ==========================================
+# 3. EXECUÇÃO E SELEÇÃO DAS TOP 5
+# ==========================================
+if not lista_tickers:
+    st.warning("Insira ao menos um ticker na barra lateral para avaliar.")
+    st.stop()
+
+with st.spinner("Avaliando ações e calculando o ranking do dia..."):
+    df_ranking = avaliar_universo(
+        tuple(lista_tickers),
+        peso_tendencia,
+        peso_momentum,
+        peso_risco,
+        peso_liquidez
+    )
+
+if df_ranking.empty:
+    st.error("Não foi possível obter dados de mercado suficientes para os tickers informados.")
+    st.stop()
+
+top5_df = df_ranking.head(5).copy()
+top5_tickers = top5_df["Ticker"].tolist()
+
+st.subheader("🥇 Top 5 Ações do Dia (Ranking Multifatorial)")
+st.dataframe(top5_df, use_container_width=True, hide_index=True)
+
+st.divider()
+st.subheader("✅ Escolha em Quais das Top 5 Aplicar")
+
+escolhidas = st.multiselect(
+    "Selecione as ações em que você deseja aplicar seu capital:",
+    options=top5_tickers,
+    default=top5_tickers
+)
+
+if escolhidas:
+    modo_divisao = st.radio(
+        "Como deseja distribuir o capital entre as ações escolhidas?",
+        options=["Divisão igualitária (% igual)", "Percentuais personalizados"],
+        horizontal=True
+    )
+
+    pesos_escolhidos = {}
+    if modo_divisao == "Divisão igualitária (% igual)":
+        peso_unit = round(100.0 / len(escolhidas), 2)
+        for i, tk in enumerate(escolhidas):
+            if i < len(escolhidas) - 1:
+                pesos_escolhidos[tk] = peso_unit
+            else:
+                pesos_escolhidos[tk] = round(100.0 - peso_unit * (len(escolhidas) - 1), 2)
+    else:
+        cols = st.columns(len(escolhidas))
+        peso_padrao = round(100.0 / len(escolhidas), 1)
+        soma_p = 0.0
+        for idx, tk in enumerate(escolhidas):
+            with cols[idx]:
+                val_p = st.number_input(
+                    f"% {tk}",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=peso_padrao,
+                    step=1.0,
+                    key=f"custom_{tk}"
+                )
+                pesos_escolhidos[tk] = val_p
+                soma_p += val_p
+
+        if abs(soma_p - 100.0) > 0.1:
+            st.warning(f"⚠️ A soma dos percentuais está em {soma_p:.1f}%. Ajuste para fechar em 100%.")
+
+    df_aloc = top5_df[top5_df["Ticker"].isin(escolhidas)].copy()
+    df_aloc["Peso (%)"] = df_aloc["Ticker"].map(pesos_escolhidos)
+    df_aloc["Valor Alocado (R$)"] = (capital_total * (df_aloc["Peso (%)"] / 100.0)).round(2)
+    df_aloc["Qtd. Estimada"] = np.floor(df_aloc["Valor Alocado (R$)"] / df_aloc["Preço (R$)"]).astype(int)
+    df_aloc["Custo Estimado (R$)"] = (df_aloc["Qtd. Estimada"] * df_aloc["Preço (R$)"]).round(2)
+
+    st.subheader("💼 Plano de Aplicação Selecionado")
+    st.dataframe(
+        df_aloc[[
+            "Rank", "Ticker", "Score", "Recomendação", "Preço (R$)",
+            "Peso (%)", "Valor Alocado (R$)", "Qtd. Estimada", "Custo Estimado (R$)"
+        ]],
+        use_container_width=True,
+        hide_index=True
+    )
+
+    custo_total_est = float(df_aloc["Custo Estimado (R$)"].sum())
+    caixa_restante = round(capital_total - custo_total_est, 2)
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Capital Total", f"R$ {capital_total:,.2f}")
+    col2.metric("Custo Estimado (Lote Unitário)", f"R$ {custo_total_est:,.2f}")
+    col3.metric("Sobra / Caixa Estimado", f"R$ {caixa_restante:,.2f}")
+else:
+    st.info("Selecione ao menos uma ação da lista Top 5 para calcular a alocação.")
+
+with st.expander("📋 Ver Ranking Completo de Todas as Ações Avaliadas"):
+    st.dataframe(df_ranking, use_container_width=True, hide_index=True)
+
+st.caption(
+    "Aviso: Ferramenta quantitativa/educacional baseada em indicadores históricos de mercado (yfinance). "
+    "Não constitui recomendação personalizada de investimento nem garantia de rentabilidade."
+)
