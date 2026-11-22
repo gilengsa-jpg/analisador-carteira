@@ -9,7 +9,8 @@ st.title("📊 Super Analisador Integrado — Ações, FIIs e Renda Fixa")
 st.markdown(
     "Painel unificado para avaliar **Ações** (fundamentos + técnica + risco), **Fundos Imobiliários (FIIs)** "
     "e **Renda Fixa**, destacando as melhores oportunidades de cada classe, permitindo montar uma carteira "
-    "combinada com cálculo de **Lucro Líquido após Impostos** e **evolução histórica de 30 a 360 dias**."
+    "combinada com sugestão de alocação por perfil (**Conservador**, **Moderado** ou **Agressivo**), "
+    "ajuste livre de percentuais, **Lucro Líquido após Impostos** e **evolução histórica de 30 a 360 dias**."
 )
 
 # ==========================================
@@ -86,7 +87,47 @@ if (peso_fund + peso_tend + peso_risco + peso_liq) == 0:
     peso_fund, peso_tend = 50, 50
 
 # ==========================================
-# 2. FUNÇÕES AUXILIARES (TÉCNICA, FUNDAMENTOS E IR)
+# 2. PERFIS DE ALOCAÇÃO POR CLASSE DE ATIVO
+# ==========================================
+PERFIS_ALOCACAO = {
+    "Conservador": {"Renda Fixa": 65.0, "FII": 20.0, "Ação": 15.0},
+    "Moderado": {"Renda Fixa": 40.0, "FII": 25.0, "Ação": 35.0},
+    "Agressivo": {"Renda Fixa": 15.0, "FII": 25.0, "Ação": 60.0},
+}
+
+def calcular_pesos_sugeridos(itens, perfil_nome):
+    base_classes = PERFIS_ALOCACAO.get(perfil_nome, PERFIS_ALOCACAO["Moderado"])
+    itens_por_classe = {"Renda Fixa": [], "FII": [], "Ação": []}
+    for classe, nome in itens:
+        if classe in itens_por_classe:
+            itens_por_classe[classe].append((classe, nome))
+
+    # Soma apenas os percentuais das classes que têm itens selecionados
+    peso_classes_ativas = sum(base_classes[c] for c, lst in itens_por_classe.items() if lst)
+    if peso_classes_ativas <= 0:
+        peso_classes_ativas = 100.0
+
+    sugestao = {}
+    for classe, lst in itens_por_classe.items():
+        if not lst:
+            continue
+        pct_classe = (base_classes[classe] / peso_classes_ativas) * 100.0
+        pct_unit = round(pct_classe / len(lst), 1)
+        for i, item in enumerate(lst):
+            if i < len(lst) - 1:
+                sugestao[item] = pct_unit
+            else:
+                sugestao[item] = round(pct_classe - pct_unit * (len(lst) - 1), 1)
+
+    # Ajuste fino para fechar exatamente em 100.0%
+    if sugestao:
+        diff = round(100.0 - sum(sugestao.values()), 1)
+        ultimo_item = list(sugestao.keys())[-1]
+        sugestao[ultimo_item] = round(sugestao[ultimo_item] + diff, 1)
+    return sugestao
+
+# ==========================================
+# 3. FUNÇÕES AUXILIARES (TÉCNICA, FUNDAMENTOS E IR)
 # ==========================================
 def aliquota_ir_regressiva(dias):
     if dias <= 180:
@@ -150,7 +191,7 @@ def pontuar_fundamentos(fund):
     return float(np.mean(notas)) if notas else 55.0
 
 # ==========================================
-# 3. MOTORES DE ANÁLISE (AÇÕES, FIIs E RENDA FIXA)
+# 4. MOTORES DE ANÁLISE (AÇÕES, FIIs E RENDA FIXA)
 # ==========================================
 @st.cache_data(ttl=900)
 def avaliar_acoes(tickers, w_fund, w_tend, w_risco, w_liq, block_ob, req_up, cap_ref, meses_ref):
@@ -208,7 +249,6 @@ def avaliar_acoes(tickers, w_fund, w_tend, w_risco, w_liq, block_ob, req_up, cap
             stop_ref = round(preco * (1.0 - 2.5 * vol_dia), 2)
             alvo_ref = round(preco * (1.0 + 4.5 * vol_dia), 2)
 
-            # Lucro líquido estimado após impostos (dividendos isentos + ganho de capital com IR de 15%)
             dy_est = fund["DY (%)"] if not np.isnan(fund["DY (%)"]) else 3.0
             div_rs = cap_ref * ((1.0 + dy_est / 100.0) ** (meses_ref / 12.0) - 1.0)
             gc_bruto = cap_ref * ((1.0 + (ret_a / 100.0)) ** (meses_ref / 12.0) - 1.0)
@@ -346,7 +386,7 @@ def avaliar_renda_fixa(df_rf, selic_ref, ipca_ref, cap_ref, meses_ref):
     return df
 
 # ==========================================
-# 4. EXECUÇÃO UNIFICADA
+# 5. EXECUÇÃO UNIFICADA
 # ==========================================
 with st.spinner("Analisando Ações, FIIs e Renda Fixa simultaneamente..."):
     df_acoes, precos_acoes = avaliar_acoes(
@@ -359,10 +399,11 @@ with st.spinner("Analisando Ações, FIIs e Renda Fixa simultaneamente..."):
 col_lucro = f"Lucro Líq. {horizonte_meses}m (R$)"
 
 # ==========================================
-# 5. ABAS ORGANIZADAS EM UM ÚNICO APP
+# 6. ABAS ORGANIZADAS EM UM ÚNICO APP
 # ==========================================
-aba_resumo, aba_acoes, aba_fiis, aba_rf, aba_graficos = st.tabs([
-    "🎯 Carteira Unificada (Sugestões + Alocação)",
+aba_resumo, aba_pers, aba_acoes, aba_fiis, aba_rf, aba_graficos = st.tabs([
+    "🎯 Carteira Unificada",
+    "🎚️ Percentuais Personalizados (por Perfil)",
     "📈 Ações (Top 5 & Completa)",
     "🏢 FIIs (Top 2 & Completa)",
     "🏦 Renda Fixa (Top 2 & Completa)",
@@ -388,7 +429,7 @@ with aba_resumo:
             st.dataframe(df_rf[["Rank", "Produto", "Score", "Taxa Líq. (% a.a.)", col_lucro]].head(2), use_container_width=True, hide_index=True)
 
     st.divider()
-    st.subheader("💼 Monte Sua Carteira Combinada (Ações + FIIs + Renda Fixa)")
+    st.subheader("💼 Seleção de Ativos para a Carteira")
     s1, s2, s3 = st.columns(3)
     with s1:
         sel_acoes = st.multiselect(
@@ -415,27 +456,22 @@ with aba_resumo:
     itens_carteira = [("Ação", a) for a in sel_acoes] + [("FII", f) for f in sel_fiis] + [("Renda Fixa", r) for r in sel_rf]
 
     if itens_carteira:
-        modo_peso = st.radio("Distribuição do capital:", ["Divisão igualitária (% igual)", "Percentuais personalizados"], horizontal=True)
+        modo_peso = st.radio("Distribuição do capital:", ["Divisão igualitária (% igual)", "Usar percentuais da aba Personalizados"], horizontal=True)
         pesos = {}
         if modo_peso == "Divisão igualitária (% igual)":
             p_eq = round(100.0 / len(itens_carteira), 2)
             for i, it in enumerate(itens_carteira):
                 pesos[it] = p_eq if i < len(itens_carteira) - 1 else round(100.0 - p_eq * (len(itens_carteira) - 1), 2)
         else:
-            cols_w = st.columns(min(len(itens_carteira), 5))
-            p_pad = round(100.0 / len(itens_carteira), 1)
-            soma_w = 0.0
-            for idx, it in enumerate(itens_carteira):
-                with cols_w[idx % 5]:
-                    val = st.number_input(f"% {it[1]}", 0.0, 100.0, p_pad, 1.0, key=f"w_{it[0]}_{it[1]}")
-                    pesos[it] = val
-                    soma_w += val
-            if abs(soma_w - 100.0) > 0.1:
-                st.warning(f"⚠️ Soma dos percentuais em {soma_w:.1f}%. Ajuste para 100%.")
+            perfil_padrao = st.session_state.get("perfil_selecionado", "Moderado")
+            sug_padrao = calcular_pesos_sugeridos(itens_carteira, perfil_padrao)
+            for it in itens_carteira:
+                chave_p = f"pers_{it[0]}_{it[1]}_{perfil_padrao}"
+                pesos[it] = float(st.session_state.get(chave_p, sug_padrao.get(it, 0.0)))
 
         linhas_unif = []
         for classe, nome in itens_carteira:
-            p = pesos[(classe, nome)]
+            p = pesos.get((classe, nome), 0.0)
             val_aloc = round(capital_total * (p / 100.0), 2)
             if classe == "Ação":
                 r = df_acoes_vis[df_acoes_vis["Ticker"] == nome].iloc[0]
@@ -473,6 +509,98 @@ with aba_resumo:
         m1, m2 = st.columns(2)
         m1.metric("Capital Total Simulado", f"R$ {capital_total:,.2f}")
         m2.metric(f"Lucro Líquido Total Estimado após Impostos ({horizonte_meses}m)", f"R$ {df_unif[col_lucro].sum():,.2f}")
+
+with aba_pers:
+    st.subheader("🎚️ Percentuais Personalizados com Sugestão por Perfil")
+    st.markdown(
+        "Escolha o perfil de risco para receber uma sugestão automática de percentuais entre **Renda Fixa**, "
+        "**Fundos Imobiliários (FIIs)** e **Ações** — e altere qualquer percentual livremente quando quiser."
+    )
+
+    perfil_escolhido = st.radio(
+        "Selecione seu perfil de investidor (você pode mudar a qualquer momento):",
+        options=["Conservador", "Moderado", "Agressivo"],
+        index=1,
+        horizontal=True,
+        key="perfil_selecionado"
+    )
+
+    ref_perfil = PERFIS_ALOCACAO[perfil_escolhido]
+    p_col1, p_col2, p_col3 = st.columns(3)
+    p_col1.metric("Sugestão Renda Fixa", f"{ref_perfil['Renda Fixa']:.0f}%")
+    p_col2.metric("Sugestão Fundos (FIIs)", f"{ref_perfil['FII']:.0f}%")
+    p_col3.metric("Sugestão Ações", f"{ref_perfil['Ação']:.0f}%")
+
+    if not itens_carteira:
+        st.info("Selecione ao menos um ativo na aba Carteira Unificada para personalizar os percentuais.")
+    else:
+        sugestao_ativos = calcular_pesos_sugeridos(itens_carteira, perfil_escolhido)
+        if st.button("↩️ Restaurar Sugestão Automática do Perfil", key=f"reset_{perfil_escolhido}"):
+            for it, val_s in sugestao_ativos.items():
+                st.session_state[f"pers_{it[0]}_{it[1]}_{perfil_escolhido}"] = float(val_s)
+            st.rerun()
+
+        cols_pers = st.columns(min(len(itens_carteira), 4))
+        pesos_pers = {}
+        soma_pers = 0.0
+        for idx, (classe, nome) in enumerate(itens_carteira):
+            chave_input = f"pers_{classe}_{nome}_{perfil_escolhido}"
+            if chave_input not in st.session_state:
+                st.session_state[chave_input] = float(sugestao_ativos.get((classe, nome), 0.0))
+            with cols_pers[idx % 4]:
+                v_pers = st.number_input(
+                    f"% {nome} ({classe})",
+                    min_value=0.0,
+                    max_value=100.0,
+                    step=1.0,
+                    key=chave_input
+                )
+                pesos_pers[(classe, nome)] = float(v_pers)
+                soma_pers += float(v_pers)
+
+        if abs(soma_pers - 100.0) > 0.1:
+            st.warning(f"⚠️ A soma dos percentuais personalizados está em {soma_pers:.1f}%. Ajuste para fechar em 100%.")
+        else:
+            st.success("✅ Percentuais somam 100,0%.")
+
+        linhas_pers = []
+        for classe, nome in itens_carteira:
+            p_item = pesos_pers[(classe, nome)]
+            val_aloc = round(capital_total * (p_item / 100.0), 2)
+            if classe == "Ação":
+                r = df_acoes_vis[df_acoes_vis["Ticker"] == nome].iloc[0]
+                pr = float(r["Preço (R$)"])
+                qtd = int(val_aloc // pr) if pr > 0 else 0
+                custo_ef = qtd * pr
+                lucro_ef = round(float(r[col_lucro]) * (custo_ef / max(capital_total, 1.0)), 2)
+                linhas_pers.append({
+                    "Classe": "Ação", "Ativo": nome, "Sugestão Perfil (%)": sugestao_ativos.get((classe, nome), 0.0),
+                    "Seu Percentual (%)": p_item, "Valor Alocado (R$)": val_aloc,
+                    "Qtd. Est.": f"{qtd} ações", col_lucro: lucro_ef
+                })
+            elif classe == "FII":
+                r = df_fiis[df_fiis["Ticker"] == nome].iloc[0]
+                pr = float(r["Preço (R$)"])
+                qtd = int(val_aloc // pr) if pr > 0 else 0
+                custo_ef = qtd * pr
+                lucro_ef = round(float(r[col_lucro]) * (custo_ef / max(capital_total, 1.0)), 2)
+                linhas_pers.append({
+                    "Classe": "FII", "Ativo": nome, "Sugestão Perfil (%)": sugestao_ativos.get((classe, nome), 0.0),
+                    "Seu Percentual (%)": p_item, "Valor Alocado (R$)": val_aloc,
+                    "Qtd. Est.": f"{qtd} cotas", col_lucro: lucro_ef
+                })
+            else:
+                r = df_rf[df_rf["Produto"] == nome].iloc[0]
+                lucro_ef = round(float(r[col_lucro]) * (val_aloc / max(capital_total, 1.0)), 2)
+                linhas_pers.append({
+                    "Classe": "Renda Fixa", "Ativo": nome, "Sugestão Perfil (%)": sugestao_ativos.get((classe, nome), 0.0),
+                    "Seu Percentual (%)": p_item, "Valor Alocado (R$)": val_aloc,
+                    "Qtd. Est.": f"Taxa líq. {r['Taxa Líq. (% a.a.)']}%", col_lucro: lucro_ef
+                })
+
+        df_pers_tab = pd.DataFrame(linhas_pers)
+        st.dataframe(df_pers_tab, use_container_width=True, hide_index=True)
+        st.metric(f"Lucro Líquido Estimado com Esses Percentuais ({horizonte_meses}m)", f"R$ {df_pers_tab[col_lucro].sum():,.2f}")
 
 with aba_acoes:
     st.subheader("📈 Análise Completa das Ações")
@@ -526,6 +654,6 @@ with aba_graficos:
             st.info("Selecione ao menos uma ação ou FII na aba Carteira Unificada.")
 
 st.caption(
-    "Aviso: Ferramenta quantitativa e educacional de apoio à decisão. Cálculos fiscais e de projeção são estimativas "
+    "Aviso: Ferramenta quantitativa e educacional de apoio à decisão. Sugestões de perfil e cálculos fiscais são estimativas "
     "simplificadas e não constituem recomendação personalizada de investimento ou consultoria tributária."
 )
