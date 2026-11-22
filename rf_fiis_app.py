@@ -8,20 +8,29 @@ st.set_page_config(page_title="Analisador Renda Fixa & FIIs", layout="wide")
 st.title("🏛️ Analisador de Renda Fixa e Fundos Imobiliários (FIIs)")
 st.markdown(
     "Avalia um universo de **FIIs** (via dados de mercado e proventos) e **opções de Renda Fixa** "
-    "(cenário de referência/taxas editáveis ou títulos/ETFs de renda fixa), destacando **as 2 melhores opções de Renda Fixa** "
-    "e **as 2 melhores opções de FIIs** para você escolher e alocar seu capital — pronto para rodar direto do GitHub no Streamlit."
+    "(cenário de referência/taxas editáveis), destacando **as 2 melhores opções de Renda Fixa** "
+    "e **as 2 melhores opções de FIIs**, com **Lucro Líquido após Impostos (R$)** e **Alíquota IR (%)** "
+    "para você escolher e alocar seu capital — pronto para rodar direto do GitHub no Streamlit."
 )
 
 # ==========================================
 # 1. PARÂMETROS NA BARRA LATERAL
 # ==========================================
-st.sidebar.header("⚙️ Capital e Cenário Macro")
+st.sidebar.header("⚙️ Capital, Prazo e Cenário Macro")
 
 capital_total = st.sidebar.number_input(
     "Capital Total Disponível (R$)",
     min_value=100.0,
     value=10000.0,
     step=500.0
+)
+
+horizonte_meses = st.sidebar.slider(
+    "Horizonte da Simulação (meses)",
+    min_value=1,
+    max_value=60,
+    value=12,
+    step=1
 )
 
 taxa_selic_cdi = st.sidebar.number_input(
@@ -40,6 +49,16 @@ ipca_projetado = st.sidebar.number_input(
     step=0.25
 )
 
+st.sidebar.subheader("🧾 Parâmetros Fiscais (IR)")
+ir_ganho_capital_fii = st.sidebar.number_input(
+    "IR sobre Ganho de Capital na Venda de FII (%)",
+    min_value=0.0,
+    max_value=35.0,
+    value=20.0,
+    step=1.0,
+    help="Proventos (rendimentos) de FIIs elegíveis costumam ser isentos de IR para PF; ganho de capital na venda com lucro tem alíquota aplicável."
+)
+
 st.sidebar.subheader("📌 Universos de Avaliação")
 fiis_padrao = (
     "KNCR11.SA, XPML11.SA, HGLG11.SA, XPLG11.SA, MXRF11.SA, "
@@ -48,20 +67,30 @@ fiis_padrao = (
 fiis_input = st.sidebar.text_area("FIIs (separados por vírgula)", value=fiis_padrao, height=75)
 lista_fiis = list(dict.fromkeys([t.strip().upper() for t in fiis_input.split(",") if t.strip()]))
 
-st.sidebar.markdown("**Opções de Renda Fixa (editáveis — taxa % a.a. ou indexador):**")
+st.sidebar.markdown("**Opções de Renda Fixa (editáveis — Prazo_Dias e Isento_IR):**")
 rf_default = pd.DataFrame([
-    {"Produto": "Tesouro Selic", "Tipo": "Pós-fixado (SELIC)", "Taxa_aa": round(taxa_selic_cdi, 2), "Isento_IR": False, "Liquidez_Dias": 1, "Risco_Score": 98.0},
-    {"Produto": "CDB Liquidez Diária 100% CDI", "Tipo": "Pós-fixado (CDI)", "Taxa_aa": round(taxa_selic_cdi, 2), "Isento_IR": False, "Liquidez_Dias": 1, "Risco_Score": 82.0},
-    {"Produto": "LCI / LCA Prefixada ou Pós", "Tipo": "Isento IR", "Taxa_aa": round(taxa_selic_cdi * 0.86, 2), "Isento_IR": True, "Liquidez_Dias": 90, "Risco_Score": 80.0},
-    {"Produto": "Tesouro IPCA+ (Juro Real)", "Tipo": "IPCA + Juros", "Taxa_aa": round(ipca_projetado + 6.5, 2), "Isento_IR": False, "Liquidez_Dias": 2, "Risco_Score": 90.0},
-    {"Produto": "CDB Médio Prazo (115% CDI)", "Tipo": "Pós-fixado (CDI)", "Taxa_aa": round(taxa_selic_cdi * 1.15, 2), "Isento_IR": False, "Liquidez_Dias": 365, "Risco_Score": 76.0},
+    {"Produto": "Tesouro Selic", "Tipo": "Pós-fixado (SELIC)", "Taxa_aa": round(taxa_selic_cdi, 2), "Isento_IR": False, "Prazo_Dias": 365, "Liquidez_Dias": 1, "Risco_Score": 98.0},
+    {"Produto": "CDB Liquidez Diária 100% CDI", "Tipo": "Pós-fixado (CDI)", "Taxa_aa": round(taxa_selic_cdi, 2), "Isento_IR": False, "Prazo_Dias": 365, "Liquidez_Dias": 1, "Risco_Score": 82.0},
+    {"Produto": "LCI / LCA Prefixada ou Pós", "Tipo": "Isento IR", "Taxa_aa": round(taxa_selic_cdi * 0.86, 2), "Isento_IR": True, "Prazo_Dias": 365, "Liquidez_Dias": 90, "Risco_Score": 80.0},
+    {"Produto": "Tesouro IPCA+ (Juro Real)", "Tipo": "IPCA + Juros", "Taxa_aa": round(ipca_projetado + 6.5, 2), "Isento_IR": False, "Prazo_Dias": 730, "Liquidez_Dias": 2, "Risco_Score": 90.0},
+    {"Produto": "CDB Médio Prazo (115% CDI)", "Tipo": "Pós-fixado (CDI)", "Taxa_aa": round(taxa_selic_cdi * 1.15, 2), "Isento_IR": False, "Prazo_Dias": 365, "Liquidez_Dias": 365, "Risco_Score": 76.0},
 ])
 df_rf_input = st.sidebar.data_editor(rf_default, num_rows="dynamic", use_container_width=True, key="rf_editor")
 
 # ==========================================
-# 2. AVALIAÇÃO DE RENDA FIXA (TOP 2)
+# 2. FUNÇÕES DE IMPOSTO E AVALIAÇÃO RF (TOP 2)
 # ==========================================
-def avaliar_renda_fixa(df_rf, selic_ref, ipca_ref):
+def aliquota_ir_regressiva(dias):
+    if dias <= 180:
+        return 0.225
+    elif dias <= 360:
+        return 0.200
+    elif dias <= 720:
+        return 0.175
+    else:
+        return 0.150
+
+def avaliar_renda_fixa(df_rf, selic_ref, ipca_ref, cap_ref, meses_ref):
     if df_rf is None or df_rf.empty:
         return pd.DataFrame()
     linhas = []
@@ -71,14 +100,21 @@ def avaliar_renda_fixa(df_rf, selic_ref, ipca_ref):
             tipo = str(row.get("Tipo", "Renda Fixa")).strip()
             taxa_bruta = float(row.get("Taxa_aa", selic_ref))
             isento = bool(row.get("Isento_IR", False))
+            prazo_dias = max(1, int(float(row.get("Prazo_Dias", meses_ref * 30))))
             liq_dias = float(row.get("Liquidez_Dias", 30))
             risco_sc = float(np.clip(float(row.get("Risco_Score", 80.0)), 0.0, 100.0))
 
-            aliquota_ir = 0.0 if isento else 0.175
-            taxa_liq = taxa_bruta * (1.0 - aliquota_ir)
-            ganho_real = ((1.0 + taxa_liq / 100.0) / (1.0 + ipca_ref / 100.0) - 1.0) * 100.0
+            dias_efetivos = max(prazo_dias, int(round(meses_ref * 30.4375)))
+            aliq_ir = 0.0 if isento else aliquota_ir_regressiva(dias_efetivos)
 
-            score_ret = float(np.clip(((taxa_liq - (selic_ref * 0.65)) / 8.0) * 100.0, 0.0, 100.0))
+            fator_bruto = (1.0 + taxa_bruta / 100.0) ** (meses_ref / 12.0)
+            lucro_bruto = cap_ref * (fator_bruto - 1.0)
+            imposto_rf = max(0.0, lucro_bruto) * aliq_ir
+            lucro_liq_rs = lucro_bruto - imposto_rf
+            taxa_liq_efetiva = ((1.0 + lucro_liq_rs / cap_ref) ** (12.0 / max(meses_ref, 1)) - 1.0) * 100.0 if cap_ref > 0 else 0.0
+            ganho_real = ((1.0 + taxa_liq_efetiva / 100.0) / (1.0 + ipca_ref / 100.0) - 1.0) * 100.0
+
+            score_ret = float(np.clip(((taxa_liq_efetiva - (selic_ref * 0.65)) / 8.0) * 100.0, 0.0, 100.0))
             score_liq = float(np.clip(100.0 - (np.log10(max(liq_dias, 1.0)) / 3.0) * 80.0, 15.0, 100.0))
             score_final = 0.55 * score_ret + 0.25 * risco_sc + 0.20 * score_liq
 
@@ -87,7 +123,9 @@ def avaliar_renda_fixa(df_rf, selic_ref, ipca_ref):
                 "Tipo": tipo,
                 "Score": round(score_final, 1),
                 "Taxa Bruta (% a.a.)": round(taxa_bruta, 2),
-                "Taxa Líq. Est. (% a.a.)": round(taxa_liq, 2),
+                "IR Est. (%)": round(aliq_ir * 100.0, 1),
+                f"Lucro Líquido {meses_ref}m (R$)": round(lucro_liq_rs, 2),
+                "Taxa Líq. Est. (% a.a.)": round(taxa_liq_efetiva, 2),
                 "Ganho Real Est. (% a.a.)": round(ganho_real, 2),
                 "Isento IR": "Sim" if isento else "Não",
                 "Liquidez (dias)": int(liq_dias),
@@ -105,7 +143,7 @@ def avaliar_renda_fixa(df_rf, selic_ref, ipca_ref):
 # 3. AVALIAÇÃO DE FIIs (TOP 2)
 # ==========================================
 @st.cache_data(ttl=900)
-def avaliar_fiis(tickers):
+def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc_fii):
     if not tickers:
         return pd.DataFrame(), pd.DataFrame()
     dados_raw = yf.download(tickers, period="1y", interval="1d", group_by="ticker", auto_adjust=True, progress=False)
@@ -152,6 +190,15 @@ def avaliar_fiis(tickers):
             except Exception:
                 pass
 
+            # Estimativa de lucro líquido após impostos no horizonte (proventos isentos + ganho de capital líquido)
+            dy_efetivo = dy_12m_pct if not np.isnan(dy_12m_pct) else 8.0
+            rend_isentos_rs = cap_ref * ((1.0 + dy_efetivo / 100.0) ** (meses_ref / 12.0) - 1.0)
+            # Projeção conservadora de variação de cota baseada no retorno anualizado moderado
+            ret_anual_hist = float(np.clip(ret_diario.tail(126).mean() * 252, -0.10, 0.18)) if len(ret_diario) >= 40 else 0.04
+            ganho_cota_bruto = cap_ref * ((1.0 + ret_anual_hist) ** (meses_ref / 12.0) - 1.0)
+            ir_cota_rs = max(0.0, ganho_cota_bruto) * (aliq_gc_fii / 100.0)
+            lucro_liq_fii_rs = rend_isentos_rs + (ganho_cota_bruto - ir_cota_rs)
+
             if not np.isnan(dy_12m_pct):
                 score_renda = float(np.clip(((dy_12m_pct - 4.0) / 10.0) * 100.0, 0.0, 100.0))
             else:
@@ -174,6 +221,7 @@ def avaliar_fiis(tickers):
                 "Score": round(score_final, 1),
                 "Preço (R$)": round(preco_atual, 2),
                 "DY 12m Est. (%)": round(dy_12m_pct, 2) if not np.isnan(dy_12m_pct) else None,
+                f"Lucro Líquido {meses_ref}m (R$)": round(lucro_liq_fii_rs, 2),
                 "Ret. 60d (%)": round(ret_60d, 2),
                 "Vol. Anual (%)": round(vol_anual, 1),
                 "Drawdown 180d (%)": round(dd_180d, 1),
@@ -193,9 +241,9 @@ def avaliar_fiis(tickers):
 # ==========================================
 # 4. EXIBIÇÃO DO RANKING E SUGESTÃO (2 RF + 2 FIIs)
 # ==========================================
-df_rf_rank = avaliar_renda_fixa(df_rf_input, taxa_selic_cdi, ipca_projetado)
+df_rf_rank = avaliar_renda_fixa(df_rf_input, taxa_selic_cdi, ipca_projetado, capital_total, horizonte_meses)
 with st.spinner("Avaliando FIIs e calculando rankings de Renda Fixa e FIIs..."):
-    df_fii_rank, df_fii_precos = avaliar_fiis(tuple(lista_fiis))
+    df_fii_rank, df_fii_precos = avaliar_fiis(tuple(lista_fiis), capital_total, horizonte_meses, ir_ganho_capital_fii)
 
 col_top1, col_top2 = st.columns(2)
 with col_top1:
@@ -274,29 +322,33 @@ if selecao_combinada:
     if abs(soma_p - 100.0) > 0.1:
         st.warning(f"⚠️ A soma dos percentuais está em {soma_p:.1f}%. Ajuste para fechar em 100%.")
 
+    col_lucro_rf = f"Lucro Líquido {horizonte_meses}m (R$)"
+    col_lucro_fii = f"Lucro Líquido {horizonte_meses}m (R$)"
     linhas_plano = []
     for classe, nome in selecao_combinada:
         p = pesos[(classe, nome)]
         valor_aloc = round(capital_total * (p / 100.0), 2)
         if classe == "Renda Fixa":
             row_rf = df_rf_rank[df_rf_rank["Produto"] == nome].iloc[0]
+            lucro_unit_base = float(row_rf[col_lucro_rf])
+            lucro_liq_aloc = round(lucro_unit_base * (valor_aloc / max(capital_total, 1.0)), 2)
             taxa_liq = float(row_rf["Taxa Líq. Est. (% a.a.)"])
-            rend_12m = round(valor_aloc * (taxa_liq / 100.0), 2)
             linhas_plano.append({
                 "Classe": "Renda Fixa",
                 "Ativo / Produto": nome,
                 "Score": row_rf["Score"],
                 "Peso (%)": p,
                 "Valor Alocado (R$)": valor_aloc,
-                "Ref. / Qtd.": f"Taxa líq. ~{taxa_liq:.2f}% a.a.",
-                "Renda/Retorno Est. 12m (R$)": rend_12m
+                "Ref. / Qtd.": f"Taxa líq. ~{taxa_liq:.2f}% a.a. | IR {row_rf['IR Est. (%)']}%",
+                f"Lucro Líquido {horizonte_meses}m (R$)": lucro_liq_aloc
             })
         else:
             row_fii = df_fii_rank[df_fii_rank["Ticker"] == nome].iloc[0]
             preco_fii = float(row_fii["Preço (R$)"])
             qtd_fii = int(valor_aloc // preco_fii) if preco_fii > 0 else 0
-            dy_fii = float(row_fii["DY 12m Est. (%)"]) if pd.notna(row_fii["DY 12m Est. (%)"]) else 8.0
-            renda_12m = round((qtd_fii * preco_fii) * (dy_fii / 100.0), 2)
+            custo_efetivo = qtd_fii * preco_fii
+            lucro_unit_base = float(row_fii[col_lucro_fii])
+            lucro_liq_aloc = round(lucro_unit_base * (custo_efetivo / max(capital_total, 1.0)), 2)
             linhas_plano.append({
                 "Classe": "FII",
                 "Ativo / Produto": nome,
@@ -304,13 +356,14 @@ if selecao_combinada:
                 "Peso (%)": p,
                 "Valor Alocado (R$)": valor_aloc,
                 "Ref. / Qtd.": f"{qtd_fii} cotas (~R$ {preco_fii:.2f})",
-                "Renda/Retorno Est. 12m (R$)": renda_12m
+                f"Lucro Líquido {horizonte_meses}m (R$)": lucro_liq_aloc
             })
 
     df_plano = pd.DataFrame(linhas_plano)
     st.subheader("💼 Plano de Alocação Combinado (Renda Fixa + FIIs)")
     st.dataframe(df_plano, use_container_width=True, hide_index=True)
-    st.metric("Retorno / Renda Estimada em 12 Meses", f"R$ {df_plano['Renda/Retorno Est. 12m (R$)'].sum():,.2f}")
+    col_col_lucro = f"Lucro Líquido {horizonte_meses}m (R$)"
+    st.metric(f"Lucro Líquido Estimado após Impostos ({horizonte_meses}m)", f"R$ {df_plano[col_col_lucro].sum():,.2f}")
 
 st.divider()
 
@@ -342,6 +395,6 @@ if not df_fii_precos.empty:
             st.line_chart(plot_df, use_container_width=True)
 
 st.caption(
-    "Aviso: Ferramenta educacional e quantitativa de apoio à análise. Taxas de renda fixa variam conforme emissor, "
-    "prazo e isenção fiscal; não constitui recomendação personalizada de investimento nem garantia de rentabilidade."
+    "Aviso: Ferramenta educacional e quantitativa de apoio à análise. Estimativas de impostos são simplificadas "
+    "e não substituem regras fiscais específicas ou assessoria tributária/financeira."
 )
