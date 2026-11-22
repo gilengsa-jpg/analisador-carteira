@@ -74,12 +74,10 @@ def avaliar_renda_fixa(df_rf, selic_ref, ipca_ref):
             liq_dias = float(row.get("Liquidez_Dias", 30))
             risco_sc = float(np.clip(float(row.get("Risco_Score", 80.0)), 0.0, 100.0))
 
-            # Estimativa simples de IR regressivo (~17,5% médio em horizonte intermediário) se não isento
             aliquota_ir = 0.0 if isento else 0.175
             taxa_liq = taxa_bruta * (1.0 - aliquota_ir)
             ganho_real = ((1.0 + taxa_liq / 100.0) / (1.0 + ipca_ref / 100.0) - 1.0) * 100.0
 
-            # Score RF: retorno líquido/real (55%) + segurança (25%) + liquidez (20%)
             score_ret = float(np.clip(((taxa_liq - (selic_ref * 0.65)) / 8.0) * 100.0, 0.0, 100.0))
             score_liq = float(np.clip(100.0 - (np.log10(max(liq_dias, 1.0)) / 3.0) * 80.0, 15.0, 100.0))
             score_final = 0.55 * score_ret + 0.25 * risco_sc + 0.20 * score_liq
@@ -142,7 +140,6 @@ def avaliar_fiis(tickers):
             pico_180d = float(close.tail(180).max())
             dd_180d = float((preco_atual / pico_180d - 1) * 100) if pico_180d > 0 else 0.0
 
-            # Proventos / Dividendos dos últimos 12 meses via yfinance
             dy_12m_pct = np.nan
             try:
                 t_obj = yf.Ticker(tk)
@@ -155,7 +152,6 @@ def avaliar_fiis(tickers):
             except Exception:
                 pass
 
-            # Pontuação FII: Renda/DY (40%) + Estabilidade/Volatilidade (30%) + Tendência/Preço (30%)
             if not np.isnan(dy_12m_pct):
                 score_renda = float(np.clip(((dy_12m_pct - 4.0) / 10.0) * 100.0, 0.0, 100.0))
             else:
@@ -346,6 +342,6 @@ if not df_fii_precos.empty:
             st.line_chart(plot_df, use_container_width=True)
 
 st.caption(
-    "Aviso: Ferramenta educacional e quantitativa de apoio à análise. Taxas de renda fixa variam conforme emissor, 
+    "Aviso: Ferramenta educacional e quantitativa de apoio à análise. Taxas de renda fixa variam conforme emissor, "
     "prazo e isenção fiscal; não constitui recomendação personalizada de investimento nem garantia de rentabilidade."
 )
