@@ -19,21 +19,21 @@ st.set_page_config(
 # 1. BASE DE AEROPORTOS, DESTINOS E CUPONS ATIVOS
 # ==============================================================================
 DESTINOS_CATALOGO = {
-    "Fortaleza (FOR) — CE": {"iata": "FOR", "cidade": "Fortaleza", "slug_decolar": "fortaleza", "base_voo": 690.0, "diaria_hotel": 310.0, "regiao": "Nordeste"},
-    "Porto de Galinhas / Recife (REC) — PE": {"iata": "REC", "cidade": "Recife", "slug_decolar": "recife", "base_voo": 640.0, "diaria_hotel": 330.0, "regiao": "Nordeste"},
-    "Maceió (MCZ) — AL": {"iata": "MCZ", "cidade": "Maceio", "slug_decolar": "maceio", "base_voo": 660.0, "diaria_hotel": 320.0, "regiao": "Nordeste"},
-    "Salvador (SSA) — BA": {"iata": "SSA", "cidade": "Salvador", "slug_decolar": "salvador", "base_voo": 540.0, "diaria_hotel": 280.0, "regiao": "Nordeste"},
-    "Porto Seguro (BPS) — BA": {"iata": "BPS", "cidade": "Porto Seguro", "slug_decolar": "porto-seguro", "base_voo": 560.0, "diaria_hotel": 270.0, "regiao": "Nordeste"},
-    "Natal (NAT) — RN": {"iata": "NAT", "cidade": "Natal", "slug_decolar": "natal", "base_voo": 710.0, "diaria_hotel": 295.0, "regiao": "Nordeste"},
-    "São Paulo (GRU/CGH) — SP": {"iata": "GRU", "cidade": "Sao Paulo", "slug_decolar": "sao-paulo", "base_voo": 340.0, "diaria_hotel": 290.0, "regiao": "Sudeste"},
-    "Rio de Janeiro (GIG/SDU) — RJ": {"iata": "GIG", "cidade": "Rio de Janeiro", "slug_decolar": "rio-de-janeiro", "base_voo": 360.0, "diaria_hotel": 320.0, "regiao": "Sudeste"},
-    "Florianópolis (FLN) — SC": {"iata": "FLN", "cidade": "Florianopolis", "slug_decolar": "florianopolis", "base_voo": 520.0, "diaria_hotel": 300.0, "regiao": "Sul"},
-    "Foz do Iguaçu (IGU) — PR": {"iata": "IGU", "cidade": "Foz do Iguacu", "slug_decolar": "foz-do-iguacu", "base_voo": 550.0, "diaria_hotel": 260.0, "regiao": "Sul"},
-    "Lisboa (LIS) — Portugal": {"iata": "LIS", "cidade": "Lisboa", "slug_decolar": "lisboa", "base_voo": 3650.0, "diaria_hotel": 580.0, "regiao": "Europa"},
-    "Madri (MAD) — Espanha": {"iata": "MAD", "cidade": "Madri", "slug_decolar": "madri", "base_voo": 3790.0, "diaria_hotel": 560.0, "regiao": "Europa"},
-    "Orlando (MCO) — EUA": {"iata": "MCO", "cidade": "Orlando", "slug_decolar": "orlando", "base_voo": 3250.0, "diaria_hotel": 520.0, "regiao": "América do Norte"},
-    "Santiago (SCL) — Chile": {"iata": "SCL", "cidade": "Santiago", "slug_decolar": "santiago", "base_voo": 1480.0, "diaria_hotel": 390.0, "regiao": "América do Sul"},
-    "Buenos Aires (EZE) — Argentina": {"iata": "EZE", "cidade": "Buenos Aires", "slug_decolar": "buenos-aires", "base_voo": 1350.0, "diaria_hotel": 360.0, "regiao": "América do Sul"},
+    "Fortaleza (FOR) — CE": {"iata": "FOR", "cidade": "Fortaleza", "slug_decolar": "fortaleza", "base_voo": 1180.0, "diaria_hotel": 420.0, "regiao": "Nordeste"},
+    "Porto de Galinhas / Recife (REC) — PE": {"iata": "REC", "cidade": "Recife", "slug_decolar": "recife", "base_voo": 1120.0, "diaria_hotel": 450.0, "regiao": "Nordeste"},
+    "Maceió (MCZ) — AL": {"iata": "MCZ", "cidade": "Maceio", "slug_decolar": "maceio", "base_voo": 1150.0, "diaria_hotel": 430.0, "regiao": "Nordeste"},
+    "Salvador (SSA) — BA": {"iata": "SSA", "cidade": "Salvador", "slug_decolar": "salvador", "base_voo": 890.0, "diaria_hotel": 370.0, "regiao": "Nordeste"},
+    "Porto Seguro (BPS) — BA": {"iata": "BPS", "cidade": "Porto Seguro", "slug_decolar": "porto-seguro", "base_voo": 920.0, "diaria_hotel": 360.0, "regiao": "Nordeste"},
+    "Natal (NAT) — RN": {"iata": "NAT", "cidade": "Natal", "slug_decolar": "natal", "base_voo": 1240.0, "diaria_hotel": 395.0, "regiao": "Nordeste"},
+    "São Paulo (GRU/CGH) — SP": {"iata": "GRU", "cidade": "Sao Paulo", "slug_decolar": "sao-paulo", "base_voo": 520.0, "diaria_hotel": 380.0, "regiao": "Sudeste"},
+    "Rio de Janeiro (GIG/SDU) — RJ": {"iata": "GIG", "cidade": "Rio de Janeiro", "slug_decolar": "rio-de-janeiro", "base_voo": 560.0, "diaria_hotel": 430.0, "regiao": "Sudeste"},
+    "Florianópolis (FLN) — SC": {"iata": "FLN", "cidade": "Florianopolis", "slug_decolar": "florianopolis", "base_voo": 860.0, "diaria_hotel": 410.0, "regiao": "Sul"},
+    "Foz do Iguaçu (IGU) — PR": {"iata": "IGU", "cidade": "Foz do Iguacu", "slug_decolar": "foz-do-iguacu", "base_voo": 880.0, "diaria_hotel": 350.0, "regiao": "Sul"},
+    "Lisboa (LIS) — Portugal": {"iata": "LIS", "cidade": "Lisboa", "slug_decolar": "lisboa", "base_voo": 4650.0, "diaria_hotel": 720.0, "regiao": "Europa"},
+    "Madri (MAD) — Espanha": {"iata": "MAD", "cidade": "Madri", "slug_decolar": "madri", "base_voo": 4820.0, "diaria_hotel": 690.0, "regiao": "Europa"},
+    "Orlando (MCO) — EUA": {"iata": "MCO", "cidade": "Orlando", "slug_decolar": "orlando", "base_voo": 4150.0, "diaria_hotel": 650.0, "regiao": "América do Norte"},
+    "Santiago (SCL) — Chile": {"iata": "SCL", "cidade": "Santiago", "slug_decolar": "santiago", "base_voo": 1980.0, "diaria_hotel": 490.0, "regiao": "América do Sul"},
+    "Buenos Aires (EZE) — Argentina": {"iata": "EZE", "cidade": "Buenos Aires", "slug_decolar": "buenos-aires", "base_voo": 1820.0, "diaria_hotel": 450.0, "regiao": "América do Sul"},
 }
 
 ORIGENS_BH = {
@@ -96,24 +96,30 @@ def gerar_deep_link(plataforma, tipo, origem_iata, dest_info, dt_ida, dt_volta, 
         return f"https://www.kayak.com.br/flights/{origem_iata}-{dest_iata}/{ida_iso}/{volta_iso}/{adultos}adults"
     elif "Decolar" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.decolar.com/pacotes/{orig_slug}/{slug_dest}?from={origem_iata}&to={dest_iata}&departure={ida_iso}&return={volta_iso}&adults={adultos}"
+            return f"https://www.decolar.com/trip/packages?origin={origem_iata}&destination={dest_iata}&from={ida_iso}&to={volta_iso}&adults={adultos}&children={criancas}"
         return f"https://www.decolar.com/shop/flights/results/roundtrip/{origem_iata}/{dest_iata}/{ida_iso}/{volta_iso}/{adultos}/{criancas}/0"
     elif "ViajaNet" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.viajanet.com.br/pacotes/{orig_slug}/{slug_dest}?departure={ida_iso}&return={volta_iso}&adults={adultos}"
-        return f"https://www.viajanet.com.br/busca/passagens/voos#/ {origem_iata}/{dest_iata}/RT/{ida_iso}/{volta_iso}/-/-/{adultos}/{criancas}/0".replace(" ", "")
+            return f"https://www.viajanet.com.br/pacotes-de-viagem?origem={origem_iata}&destino={dest_iata}&ida={ida_iso}&volta={volta_iso}&adultos={adultos}&criancas={criancas}"
+        return f"https://www.viajanet.com.br/busca/passagens/voos#/{origem_iata}/{dest_iata}/RT/{ida_iso}/{volta_iso}/-/-/{adultos}/{criancas}/0"
     elif "Azul" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.azulviagens.com.br/pacotes?origin={origem_iata}&destination={dest_iata}&departureDate={ida_iso}&returnDate={volta_iso}&adults={adultos}"
+            return f"https://www.azulviagens.com.br/pacotes-turisticos?origem={origem_iata}&destino={dest_iata}&ida={ida_iso}&volta={volta_iso}&adultos={adultos}&criancas={criancas}"
         return f"https://www.voeazul.com.br/br/pt/home/selecao-voo?c[0].ds={origem_iata}&c[0].as={dest_iata}&c[0].std={dt_ida.strftime('%m/%d/%Y')}&c[1].ds={dest_iata}&c[1].as={origem_iata}&c[1].std={dt_volta.strftime('%m/%d/%Y')}&p[0].t=ADT&p[0].c={adultos}"
     elif "GOL" in plataforma:
         return f"https://b2c.voegol.com.br/compra/busca-parceiros?pv=br&tipo=DF&de={origem_iata}&para={dest_iata}&ida={dt_ida.strftime('%d-%m-%Y')}&volta={dt_volta.strftime('%d-%m-%Y')}&ADT={adultos}&CHD={criancas}"
     elif "LATAM" in plataforma:
+        if "Pacote" in tipo:
+            return f"https://www.latamairlines.com/br/pt/latam-travel/pacotes?origin={origem_iata}&destination={dest_iata}&outbound={ida_iso}&inbound={volta_iso}&adt={adultos}&chd={criancas}"
         return f"https://www.latamairlines.com/br/pt/oferta-voos?origin={origem_iata}&destination={dest_iata}&outbound={ida_iso}T12%3A00%3A00.000Z&inbound={volta_iso}T12%3A00%3A00.000Z&adt={adultos}&chd={criancas}&trip=RT"
     elif "Booking" in plataforma:
+        if "Pacote" in tipo:
+            return f"https://www.booking.com/flights/index.pt-br.html?aid=304142&from={origem_iata}&to={dest_iata}&depart={ida_iso}&return={volta_iso}&adults={adultos}&children={criancas}"
         dest_q = urllib.parse.quote(dest_info["cidade"])
         return f"https://www.booking.com/searchresults.pt-br.html?ss={dest_q}&checkin={ida_iso}&checkout={volta_iso}&group_adults={adultos}&group_children={criancas}"
     elif "Expedia" in plataforma:
+        if "Pacote" in tipo:
+            return f"https://www.expedia.com.br/Packages?origin={origem_iata}&destination={dest_iata}&startDate={ida_iso}&endDate={volta_iso}&adults={adultos}&children={criancas}"
         dest_q = urllib.parse.quote(dest_info["cidade"])
         return f"https://www.expedia.com.br/Hotel-Search?destination={dest_q}&startDate={ida_iso}&endDate={volta_iso}&adults={adultos}"
     elif "MaxMilhas" in plataforma:
@@ -250,11 +256,11 @@ def simular_ofertas_janela(origem_iata, dest_nome, dest_info, dt_ida, dt_volta, 
         variacao_plat = float(rng.uniform(0.97, 1.04)) * plat["fator_preco"]
 
         if p_tipo == "Só Voo":
-            bruto = round(preco_voo_total_ref * variacao_plat, 2)
+            bruto = round(preco_voo_total_ref * max(1.0, variacao_plat), 2)
             detalhe = cia_real_top if (cia_real_top and "Google" in p_nome) else plat["cia_padrao"]
         else:
-            # Pacote Voo + Hotel tem economia típica de bundle (8% a 14% abaixo da soma separada)
-            bruto = round((preco_voo_total_ref + preco_hotel_total_ref) * 0.90 * variacao_plat, 2)
+            # Pacote Voo + Hotel (voo + diárias com desconto moderado de bundle de ~5%)
+            bruto = round((preco_voo_total_ref + preco_hotel_total_ref) * 0.95 * max(0.99, variacao_plat), 2)
             detalhe = f"{plat['cia_padrao']} ({duracao} diárias)"
 
         desconto_rs, cupom_txt = aplicar_melhor_cupom(p_nome, p_tipo, bruto)
@@ -389,9 +395,12 @@ def gerar_excel_viagens(df_ofertas, df_cupons, origem_label):
 # ==============================================================================
 st.title("✈️ Buscador Inteligente de Voos & Pacotes — Saindo de Belo Horizonte")
 st.markdown(
-    "Varre tarifas, pacotes (**Voo + Hotel**) e **cupons de desconto** em **Google Flights, Skyscanner, Kayak, "
-    "Decolar, ViajaNet, Azul Viagens, GOL, LATAM, Booking, Expedia e MaxMilhas**, detectando automaticamente "
-    "promoções ao alterar a duração da viagem (ex.: **5 dias vs. 7 dias**)."
+    "Compara tarifas e pacotes (**Voo + Hotel**) saindo de **Belo Horizonte** em **Google Flights, Skyscanner, Kayak, "
+    "Decolar, ViajaNet, Azul Viagens, GOL, LATAM, Booking, Expedia e MaxMilhas**, com links direcionados para "
+    "páginas de **Voos** ou **Pacotes** e detector de promoções por duração.\n\n"
+    "⚠️ *Transparência sobre os preços:* As OTAs e companhias não liberam API pública gratuita unificada de pacotes e voos "
+    "em tempo real. Quando a consulta ao vivo (`fast-flights`) não retorna tarifa do Google Flights, os valores exibidos "
+    "são **estimativas de referência** (e o preço real no checkout pode variar conforme disponibilidade, taxas e regras de cupom)."
 )
 
 st.sidebar.header("🛫 Origem, Destino e Passageiros")
