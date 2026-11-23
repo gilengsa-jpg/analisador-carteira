@@ -10,290 +10,192 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 st.set_page_config(
-    page_title="Buscador Inteligente de Voos & Pacotes — BHZ",
+    page_title="Comparador de Voos Reais & Buscador de Pacotes — BHZ",
     page_icon="✈️",
     layout="wide"
 )
 
 # ==============================================================================
-# 1. BASE DE AEROPORTOS, DESTINOS E CUPONS ATIVOS
+# 1. CATÁLOGO DE AEROPORTOS E DESTINOS
 # ==============================================================================
 DESTINOS_CATALOGO = {
-    "Fortaleza (FOR) — CE": {"iata": "FOR", "cidade": "Fortaleza", "slug_decolar": "fortaleza", "base_voo": 1180.0, "diaria_hotel": 420.0, "regiao": "Nordeste"},
-    "Porto de Galinhas / Recife (REC) — PE": {"iata": "REC", "cidade": "Recife", "slug_decolar": "recife", "base_voo": 1120.0, "diaria_hotel": 450.0, "regiao": "Nordeste"},
-    "Maceió (MCZ) — AL": {"iata": "MCZ", "cidade": "Maceio", "slug_decolar": "maceio", "base_voo": 1150.0, "diaria_hotel": 430.0, "regiao": "Nordeste"},
-    "Salvador (SSA) — BA": {"iata": "SSA", "cidade": "Salvador", "slug_decolar": "salvador", "base_voo": 890.0, "diaria_hotel": 370.0, "regiao": "Nordeste"},
-    "Porto Seguro (BPS) — BA": {"iata": "BPS", "cidade": "Porto Seguro", "slug_decolar": "porto-seguro", "base_voo": 920.0, "diaria_hotel": 360.0, "regiao": "Nordeste"},
-    "Natal (NAT) — RN": {"iata": "NAT", "cidade": "Natal", "slug_decolar": "natal", "base_voo": 1240.0, "diaria_hotel": 395.0, "regiao": "Nordeste"},
-    "São Paulo (GRU/CGH) — SP": {"iata": "GRU", "cidade": "Sao Paulo", "slug_decolar": "sao-paulo", "base_voo": 520.0, "diaria_hotel": 380.0, "regiao": "Sudeste"},
-    "Rio de Janeiro (GIG/SDU) — RJ": {"iata": "GIG", "cidade": "Rio de Janeiro", "slug_decolar": "rio-de-janeiro", "base_voo": 560.0, "diaria_hotel": 430.0, "regiao": "Sudeste"},
-    "Florianópolis (FLN) — SC": {"iata": "FLN", "cidade": "Florianopolis", "slug_decolar": "florianopolis", "base_voo": 860.0, "diaria_hotel": 410.0, "regiao": "Sul"},
-    "Foz do Iguaçu (IGU) — PR": {"iata": "IGU", "cidade": "Foz do Iguacu", "slug_decolar": "foz-do-iguacu", "base_voo": 880.0, "diaria_hotel": 350.0, "regiao": "Sul"},
-    "Lisboa (LIS) — Portugal": {"iata": "LIS", "cidade": "Lisboa", "slug_decolar": "lisboa", "base_voo": 4650.0, "diaria_hotel": 720.0, "regiao": "Europa"},
-    "Madri (MAD) — Espanha": {"iata": "MAD", "cidade": "Madri", "slug_decolar": "madri", "base_voo": 4820.0, "diaria_hotel": 690.0, "regiao": "Europa"},
-    "Orlando (MCO) — EUA": {"iata": "MCO", "cidade": "Orlando", "slug_decolar": "orlando", "base_voo": 4150.0, "diaria_hotel": 650.0, "regiao": "América do Norte"},
-    "Santiago (SCL) — Chile": {"iata": "SCL", "cidade": "Santiago", "slug_decolar": "santiago", "base_voo": 1980.0, "diaria_hotel": 490.0, "regiao": "América do Sul"},
-    "Buenos Aires (EZE) — Argentina": {"iata": "EZE", "cidade": "Buenos Aires", "slug_decolar": "buenos-aires", "base_voo": 1820.0, "diaria_hotel": 450.0, "regiao": "América do Sul"},
+    "Fortaleza (FOR) — CE": {"iata": "FOR", "cidade": "Fortaleza", "slug": "fortaleza", "regiao": "Nordeste"},
+    "Porto de Galinhas / Recife (REC) — PE": {"iata": "REC", "cidade": "Recife", "slug": "recife", "regiao": "Nordeste"},
+    "Maceió (MCZ) — AL": {"iata": "MCZ", "cidade": "Maceio", "slug": "maceio", "regiao": "Nordeste"},
+    "Salvador (SSA) — BA": {"iata": "SSA", "cidade": "Salvador", "slug": "salvador", "regiao": "Nordeste"},
+    "Porto Seguro (BPS) — BA": {"iata": "BPS", "cidade": "Porto Seguro", "slug": "porto-seguro", "regiao": "Nordeste"},
+    "Natal (NAT) — RN": {"iata": "NAT", "cidade": "Natal", "slug": "natal", "regiao": "Nordeste"},
+    "São Paulo (GRU/CGH) — SP": {"iata": "GRU", "cidade": "Sao Paulo", "slug": "sao-paulo", "regiao": "Sudeste"},
+    "Rio de Janeiro (GIG/SDU) — RJ": {"iata": "GIG", "cidade": "Rio de Janeiro", "slug": "rio-de-janeiro", "regiao": "Sudeste"},
+    "Florianópolis (FLN) — SC": {"iata": "FLN", "cidade": "Florianopolis", "slug": "florianopolis", "regiao": "Sul"},
+    "Foz do Iguaçu (IGU) — PR": {"iata": "IGU", "cidade": "Foz do Iguacu", "slug": "foz-do-iguacu", "regiao": "Sul"},
+    "Lisboa (LIS) — Portugal": {"iata": "LIS", "cidade": "Lisboa", "slug": "lisboa", "regiao": "Europa"},
+    "Madri (MAD) — Espanha": {"iata": "MAD", "cidade": "Madri", "slug": "madri", "regiao": "Europa"},
+    "Orlando (MCO) — EUA": {"iata": "MCO", "cidade": "Orlando", "slug": "orlando", "regiao": "América do Norte"},
+    "Santiago (SCL) — Chile": {"iata": "SCL", "cidade": "Santiago", "slug": "santiago", "regiao": "América do Sul"},
+    "Buenos Aires (EZE) — Argentina": {"iata": "EZE", "cidade": "Buenos Aires", "slug": "buenos-aires", "regiao": "América do Sul"},
 }
 
 ORIGENS_BH = {
-    "Belo Horizonte — Todos (BHZ)": "BHZ",
     "Confins — Tancredo Neves (CNF)": "CNF",
+    "Belo Horizonte — Todos (BHZ)": "BHZ",
     "Pampulha (PLU)": "PLU",
 }
 
-CUPONS_ATIVOS = [
-    {"Plataforma": "Decolar", "Tipo_Alvo": "Pacote (Voo + Hotel)", "Codigo": "PACOTE10BHZ", "Desconto_Pct": 0.10, "Teto_RS": 450.0, "Minimo_RS": 1800.0, "Regra": "10% OFF em pacotes nacionais e internacionais (teto R$ 450)"},
-    {"Plataforma": "Decolar", "Tipo_Alvo": "Só Voo", "Codigo": "VOE7DECOLAR", "Desconto_Pct": 0.07, "Teto_RS": 220.0, "Minimo_RS": 900.0, "Regra": "7% OFF em passagens aéreas ida e volta"},
-    {"Plataforma": "ViajaNet", "Tipo_Alvo": "Pacote (Voo + Hotel)", "Codigo": "VIAJA8PACOTE", "Desconto_Pct": 0.08, "Teto_RS": 380.0, "Minimo_RS": 1500.0, "Regra": "8% OFF em pacotes selecionados ViajaNet"},
-    {"Plataforma": "ViajaNet", "Tipo_Alvo": "Só Voo", "Codigo": "VIAJA5OFF", "Desconto_Pct": 0.05, "Teto_RS": 180.0, "Minimo_RS": 700.0, "Regra": "5% OFF em voos nacionais"},
-    {"Plataforma": "Azul Viagens / Azul", "Tipo_Alvo": "Pacote (Voo + Hotel)", "Codigo": "AZULBHZ12", "Desconto_Pct": 0.12, "Teto_RS": 500.0, "Minimo_RS": 2000.0, "Regra": "12% OFF saindo do Hub Confins (CNF) via Azul Viagens"},
-    {"Plataforma": "Azul Viagens / Azul", "Tipo_Alvo": "Só Voo", "Codigo": "CONFINS8", "Desconto_Pct": 0.08, "Teto_RS": 250.0, "Minimo_RS": 800.0, "Regra": "8% OFF em voos diretos saindo de CNF"},
-    {"Plataforma": "GOL / Smiles Viagens", "Tipo_Alvo": "Só Voo", "Codigo": "VOEGOL6", "Desconto_Pct": 0.06, "Teto_RS": 200.0, "Minimo_RS": 750.0, "Regra": "6% OFF na tarifa Light ou Plus"},
-    {"Plataforma": "LATAM / LATAM Travel", "Tipo_Alvo": "Pacote (Voo + Hotel)", "Codigo": "LATAMPAC9", "Desconto_Pct": 0.09, "Teto_RS": 400.0, "Minimo_RS": 1700.0, "Regra": "9% OFF em pacotes Voo + Hotel LATAM"},
-    {"Plataforma": "Booking.com", "Tipo_Alvo": "Pacote (Voo + Hotel)", "Codigo": "GENIUS10", "Desconto_Pct": 0.10, "Teto_RS": 420.0, "Minimo_RS": 1200.0, "Regra": "10% OFF nível Genius em hospedagem + voo"},
-    {"Plataforma": "Expedia", "Tipo_Alvo": "Pacote (Voo + Hotel)", "Codigo": "EXPEDIA8", "Desconto_Pct": 0.08, "Teto_RS": 350.0, "Minimo_RS": 1500.0, "Regra": "8% OFF ao reservar voo e hotel juntos"},
-    {"Plataforma": "MaxMilhas / 123Milhas", "Tipo_Alvo": "Só Voo", "Codigo": "MILHAS7BH", "Desconto_Pct": 0.07, "Teto_RS": 240.0, "Minimo_RS": 850.0, "Regra": "7% OFF em emissões com milhas"},
-    {"Plataforma": "Skyscanner / Google Flights", "Tipo_Alvo": "Só Voo", "Codigo": "METABUSCA (Sem cupom)", "Desconto_Pct": 0.00, "Teto_RS": 0.0, "Minimo_RS": 0.0, "Regra": "Comparador direto de menor tarifa entre companhias"},
-]
-
-PLATAFORMAS_CONFIG = [
-    {"nome": "Google Flights", "tipo": "Só Voo", "fator_preco": 0.97, "cia_padrao": "Azul / GOL / LATAM"},
-    {"nome": "Skyscanner", "tipo": "Só Voo", "fator_preco": 0.98, "cia_padrao": "Multi-Companhias"},
-    {"nome": "Kayak", "tipo": "Só Voo", "fator_preco": 0.99, "cia_padrao": "Multi-Companhias"},
-    {"nome": "Azul Viagens / Azul", "tipo": "Só Voo", "fator_preco": 1.01, "cia_padrao": "Azul Linhas Aéreas (Hub CNF)"},
-    {"nome": "GOL / Smiles Viagens", "tipo": "Só Voo", "fator_preco": 1.00, "cia_padrao": "GOL Linhas Aéreas"},
-    {"nome": "LATAM / LATAM Travel", "tipo": "Só Voo", "fator_preco": 1.02, "cia_padrao": "LATAM Airlines"},
-    {"nome": "Decolar", "tipo": "Só Voo", "fator_preco": 1.03, "cia_padrao": "Azul / GOL / LATAM"},
-    {"nome": "ViajaNet", "tipo": "Só Voo", "fator_preco": 1.02, "cia_padrao": "Azul / GOL / LATAM"},
-    {"nome": "MaxMilhas / 123Milhas", "tipo": "Só Voo", "fator_preco": 0.95, "cia_padrao": "Emissão Milhas (Azul/GOL/LATAM)"},
-    {"nome": "Decolar", "tipo": "Pacote (Voo + Hotel)", "fator_preco": 0.94, "cia_padrao": "Voo + Hotel 4★ c/ Café"},
-    {"nome": "Azul Viagens / Azul", "tipo": "Pacote (Voo + Hotel)", "fator_preco": 0.95, "cia_padrao": "Voo Direto CNF + Resort/Hotel"},
-    {"nome": "ViajaNet", "tipo": "Pacote (Voo + Hotel)", "fator_preco": 0.96, "cia_padrao": "Voo + Hotel 3★/4★"},
-    {"nome": "Booking.com", "tipo": "Pacote (Voo + Hotel)", "fator_preco": 0.95, "cia_padrao": "Voo + Hospedagem Genius"},
-    {"nome": "Expedia", "tipo": "Pacote (Voo + Hotel)", "fator_preco": 0.97, "cia_padrao": "Bundle Voo + Hotel"},
-    {"nome": "LATAM / LATAM Travel", "tipo": "Pacote (Voo + Hotel)", "fator_preco": 0.98, "cia_padrao": "Voo LATAM + Hotel Parceiro"},
+PLATAFORMAS_BUSCA = [
+    {"nome": "Google Flights", "tipo": "Só Voo", "obs": "Abre já preenchido com origem, destino, ida/volta e passageiros"},
+    {"nome": "Skyscanner", "tipo": "Só Voo", "obs": "Abre com trecho, datas e passageiros preenchidos"},
+    {"nome": "Kayak", "tipo": "Só Voo", "obs": "Abre com trecho, datas e adultos preenchidos"},
+    {"nome": "Decolar (Voos)", "tipo": "Só Voo", "obs": "Abre busca direta de voos ida e volta"},
+    {"nome": "ViajaNet (Voos)", "tipo": "Só Voo", "obs": "Abre busca direta de voos ida e volta"},
+    {"nome": "Azul Linhas Aéreas", "tipo": "Só Voo", "obs": "Site oficial Azul (Hub Confins CNF)"},
+    {"nome": "GOL Linhas Aéreas", "tipo": "Só Voo", "obs": "Site oficial GOL Linhas Aéreas"},
+    {"nome": "LATAM Airlines", "tipo": "Só Voo", "obs": "Abre busca de voos ida e volta LATAM"},
+    {"nome": "MaxMilhas", "tipo": "Só Voo", "obs": "Abre busca de emissões com milhas"},
+    {"nome": "Decolar (Pacotes)", "tipo": "Pacote (Voo + Hotel)", "obs": "Página oficial de Pacotes Decolar"},
+    {"nome": "Azul Viagens (Pacotes)", "tipo": "Pacote (Voo + Hotel)", "obs": "Página oficial Azul Viagens Pacotes"},
+    {"nome": "ViajaNet (Pacotes)", "tipo": "Pacote (Voo + Hotel)", "obs": "Página oficial de Pacotes ViajaNet"},
+    {"nome": "LATAM Travel (Pacotes)", "tipo": "Pacote (Voo + Hotel)", "obs": "Página oficial LATAM Travel Pacotes"},
+    {"nome": "Expedia (Pacotes)", "tipo": "Pacote (Voo + Hotel)", "obs": "Página oficial Expedia Pacotes"},
+    {"nome": "Booking.com (Hospedagem)", "tipo": "Hospedagem", "obs": "Abre destino, check-in, check-out e hóspedes preenchidos"},
 ]
 
 # ==============================================================================
-# 2. GERADOR DE DEEP LINKS PARAMETRIZADOS (CHECKOUT DIRETO)
+# 2. GERADOR DE LINKS OFICIAIS REAIS (COM PARÂMETROS REAIS SUPORTADOS)
 # ==============================================================================
-def gerar_deep_link(plataforma, tipo, origem_iata, dest_info, dt_ida, dt_volta, adultos, criancas):
+def gerar_link_plataforma(plataforma, tipo, origem_iata, dest_info, dt_ida, dt_volta, adultos, criancas):
     dest_iata = dest_info["iata"]
     ida_iso = dt_ida.strftime("%Y-%m-%d")
     volta_iso = dt_volta.strftime("%Y-%m-%d")
+    ida_yymmdd = dt_ida.strftime("%y%m%d")
+    volta_yymmdd = dt_volta.strftime("%y%m%d")
+    cidade_q = urllib.parse.quote(dest_info["cidade"])
+    orig_gf = "CNF" if origem_iata == "BHZ" else origem_iata
 
     if "Google Flights" in plataforma:
-        q = urllib.parse.quote(f"Flights from {origem_iata} to {dest_iata} on {ida_iso} through {volta_iso}")
+        pax_txt = f"{adultos} adults" + (f" {criancas} children" if criancas > 0 else "")
+        q = urllib.parse.quote(f"Flights from {orig_gf} to {dest_iata} on {ida_iso} through {volta_iso} for {pax_txt}")
         return f"https://www.google.com/travel/flights?q={q}&curr=BRL&hl=pt-BR"
     elif "Skyscanner" in plataforma:
-        return "https://www.skyscanner.com.br/"
+        return f"https://www.skyscanner.com.br/transporte/passagens-aereas/{orig_gf.lower()}/{dest_iata.lower()}/{ida_yymmdd}/{volta_yymmdd}/?adults={adultos}&children={criancas}"
     elif "Kayak" in plataforma:
-        return "https://www.kayak.com.br/flights"
-    elif "Decolar" in plataforma:
-        if "Pacote" in tipo:
-            return "https://www.decolar.com/pacotes/"
-        return "https://www.decolar.com/passagens-aereas/"
-    elif "ViajaNet" in plataforma:
-        if "Pacote" in tipo:
-            return "https://www.viajanet.com.br/pacotes"
-        return "https://www.viajanet.com.br/passagens-aereas"
-    elif "Azul" in plataforma:
-        if "Pacote" in tipo:
-            return "https://www.azulviagens.com.br/packages/"
+        chd_part = f"/{criancas}children" if criancas > 0 else ""
+        return f"https://www.kayak.com.br/flights/{orig_gf}-{dest_iata}/{ida_iso}/{volta_iso}/{adultos}adults{chd_part}"
+    elif "Decolar (Pacotes)" in plataforma:
+        return "https://www.decolar.com/pacotes/"
+    elif "Decolar (Voos)" in plataforma:
+        return f"https://www.decolar.com/shop/flights/results/roundtrip/{orig_gf}/{dest_iata}/{ida_iso}/{volta_iso}/{adultos}/{criancas}/0"
+    elif "ViajaNet (Pacotes)" in plataforma:
+        return "https://www.viajanet.com.br/pacotes"
+    elif "ViajaNet (Voos)" in plataforma:
+        return f"https://www.viajanet.com.br/busca/passagens/voos#/{orig_gf}/{dest_iata}/RT/{ida_iso}/{volta_iso}/-/-/{adultos}/{criancas}/0"
+    elif "Azul Viagens" in plataforma:
+        return "https://www.azulviagens.com.br/packages/"
+    elif "Azul Linhas" in plataforma:
         return "https://www.voeazul.com.br/br/pt/home"
     elif "GOL" in plataforma:
         return "https://www.voegol.com.br/"
-    elif "LATAM" in plataforma:
-        if "Pacote" in tipo:
-            return "https://www.latamairlines.com/br/pt/pacotes-viagens"
-        return "https://www.latamairlines.com/br/pt"
+    elif "LATAM Travel" in plataforma:
+        return "https://www.latamairlines.com/br/pt/pacotes-viagens"
+    elif "LATAM Airlines" in plataforma:
+        return f"https://www.latamairlines.com/br/pt/oferta-voos?origin={orig_gf}&destination={dest_iata}&outbound={ida_iso}T12%3A00%3A00.000Z&inbound={volta_iso}T12%3A00%3A00.000Z&adt={adultos}&chd={criancas}&trip=RT"
     elif "Booking" in plataforma:
-        if "Pacote" in tipo:
-            return "https://www.booking.com/flights/index.pt-br.html"
-        return "https://www.booking.com/"
+        return f"https://www.booking.com/searchresults.pt-br.html?ss={cidade_q}&checkin={ida_iso}&checkout={volta_iso}&group_adults={adultos}&group_children={criancas}"
     elif "Expedia" in plataforma:
-        if "Pacote" in tipo:
-            return "https://www.expedia.com.br/Pacotes"
-        return "https://www.expedia.com.br/"
+        return "https://www.expedia.com.br/Pacotes"
     elif "MaxMilhas" in plataforma:
-        return "https://www.maxmilhas.com.br/"
-    return "https://www.google.com/travel/flights?curr=BRL&hl=pt-BR"
+        return f"https://www.maxmilhas.com.br/busca-passagens-aereas/RT/{orig_gf}/{dest_iata}/{ida_iso}/{volta_iso}/{adultos}/{criancas}/0/EC"
+    return f"https://www.google.com/travel/flights?curr=BRL&hl=pt-BR"
 
 # ==============================================================================
-# 3. CONECTOR OPCIONAL AO VIVO (FAST-FLIGHTS) + MODELAGEM SAZONAL B3/TURISMO
+# 3. CONSULTA DE PREÇOS REAIS (IDA E VOLTA) VIA GOOGLE FLIGHTS (FAST-FLIGHTS)
 # ==============================================================================
-@st.cache_data(ttl=1800)
-def consultar_google_flights_real(origem_iata, dest_iata, dt_ida, dt_volta, adultos, classe_cabine):
+def _extrair_valor_brl(preco_str):
+    if preco_str is None:
+        return None
+    s = str(preco_str).strip()
+    limpo = "".join(ch for ch in s if ch.isdigit() or ch in ",.")
+    if not limpo:
+        return None
+    if "." in limpo and "," in limpo:
+        limpo = limpo.replace(".", "").replace(",", ".")
+    elif "." in limpo:
+        partes = limpo.split(".")
+        if len(partes[-1]) == 3:
+            limpo = "".join(partes)
+    elif "," in limpo:
+        partes = limpo.split(",")
+        if len(partes[-1]) == 3:
+            limpo = "".join(partes)
+        else:
+            limpo = limpo.replace(",", ".")
+    try:
+        val = float(limpo)
+        return val if val >= 80.0 else None
+    except Exception:
+        return None
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def consultar_tarifas_reais_ida_volta(origem_iata, dest_iata, dt_ida, dt_volta, adultos, criancas, classe_cabine):
     """
-    Tenta consultar tarifas reais via biblioteca fast-flights (quando disponível e sem bloqueio de rede).
-    Retorna lista de preços reais encontrados ou lista vazia em caso de bloqueio/indisponibilidade.
+    Busca exclusivamente tarifas REAIS de Ida e Volta no Google Flights via fast-flights
+    para o número exato de viajantes (adultos + crianças).
+    Nunca inventa nem estima valores.
     """
     try:
         from fast_flights import FlightData, Passengers, get_flights
-        mapa_classe = {"Econômica": "economy", "Executiva": "business", "Primeira Classe": "first"}
+    except ImportError:
+        return [], "Biblioteca 'fast-flights' não instalada (adicione fast-flights no requirements.txt)."
+
+    mapa_classe = {"Econômica": "economy", "Executiva": "business", "Primeira Classe": "first"}
+    orig_consulta = "CNF" if origem_iata == "BHZ" else origem_iata
+
+    try:
         res = get_flights(
             flight_data=[
-                FlightData(date=dt_ida.strftime("%Y-%m-%d"), from_airport=origem_iata, to_airport=dest_iata),
-                FlightData(date=dt_volta.strftime("%Y-%m-%d"), from_airport=dest_iata, to_airport=origem_iata),
+                FlightData(date=dt_ida.strftime("%Y-%m-%d"), from_airport=orig_consulta, to_airport=dest_iata),
+                FlightData(date=dt_volta.strftime("%Y-%m-%d"), from_airport=dest_iata, to_airport=orig_consulta),
             ],
             trip="round-trip",
             seat=mapa_classe.get(classe_cabine, "economy"),
-            passengers=Passengers(adults=adultos),
+            passengers=Passengers(adults=int(adultos), children=int(criancas)),
             fetch_mode="fallback",
         )
-        precos = []
-        if res and getattr(res, "flights", None):
-            for fl in res.flights[:6]:
-                p_str = str(getattr(fl, "price", ""))
-                digits = "".join(ch for ch in p_str if ch.isdigit())
-                if digits:
-                    val = float(digits)
-                    if val > 100:
-                        precos.append({
-                            "cia": getattr(fl, "name", "Cia Aérea"),
-                            "preco": val,
-                            "paradas": getattr(fl, "stops", "Direto/1 parada"),
-                            "duracao_voo": getattr(fl, "duration", "")
-                        })
-        return precos
-    except Exception:
-        return []
+    except Exception as exc:
+        return [], f"Falha ou bloqueio temporário na consulta ao vivo: {exc}"
 
-def fator_sazonal_data(dt_ida, dt_volta, dias_antecedencia):
-    """Calcula multiplicador realista de tarifa conforme dia da semana, mês e antecedência."""
-    fator = 1.0
-    # Embarque terça/quarta costuma ser mais barato que sexta/domingo
-    wd_ida = dt_ida.weekday()
-    if wd_ida in (1, 2):
-        fator *= 0.88
-    elif wd_ida in (4, 6):
-        fator *= 1.14
-    else:
-        fator *= 0.98
+    if not res or not getattr(res, "flights", None):
+        return [], "O Google Flights não retornou tarifas ao vivo para essa combinação no momento."
 
-    # Sazonalidade mensal (alta temporada: Jan, Jul, Dez)
-    mes = dt_ida.month
-    if mes in (1, 7, 12):
-        fator *= 1.24
-    elif mes in (2, 6):
-        fator *= 1.08
-    elif mes in (3, 4, 5, 8, 9, 10, 11):
-        fator *= 0.92
+    lista_reais = []
+    for fl in res.flights:
+        val = _extrair_valor_brl(getattr(fl, "price", None))
+        if val is not None:
+            lista_reais.append({
+                "Companhia Aérea": str(getattr(fl, "name", "Não informada")),
+                "Preço Total Real Ida e Volta (R$)": round(val, 2),
+                "Paradas": str(getattr(fl, "stops", "-")),
+                "Duração do Voo": str(getattr(fl, "duration", "-")),
+                "Partida": str(getattr(fl, "departure", "-")),
+                "Chegada": str(getattr(fl, "arrival", "-")),
+            })
 
-    # Antecedência de compra
-    if dias_antecedencia < 14:
-        fator *= 1.28
-    elif 21 <= dias_antecedencia <= 90:
-        fator *= 0.93
+    if not lista_reais:
+        return [], "As tarifas retornadas não continham preço numérico legível."
 
-    # Promoções relâmpago típicas para estadias de 4 ou 5 dias (escapadas / pacotes fechados)
-    duracao = (dt_volta - dt_ida).days
-    if duracao in (4, 5):
-        fator *= 0.84
-    elif duracao == 6:
-        fator *= 0.95
-
-    return fator
-
-def aplicar_melhor_cupom(plataforma, tipo, preco_bruto):
-    melhor_desc = 0.0
-    cod_aplicado = "Sem cupom"
-    for cp in CUPONS_ATIVOS:
-        if cp["Plataforma"] == plataforma and cp["Tipo_Alvo"] == tipo and cp["Desconto_Pct"] > 0:
-            if preco_bruto >= cp["Minimo_RS"]:
-                desc = min(preco_bruto * cp["Desconto_Pct"], cp["Teto_RS"])
-                if desc > melhor_desc:
-                    melhor_desc = desc
-                    cod_aplicado = f"{cp['Codigo']} (-R$ {desc:.0f})"
-    return round(melhor_desc, 2), cod_aplicado
-
-def simular_ofertas_janela(origem_iata, dest_nome, dest_info, dt_ida, dt_volta, adultos, criancas, classe_cabine, tentar_ao_vivo=False):
-    duracao = max(1, (dt_volta - dt_ida).days)
-    hoje = datetime.date.today()
-    antecedencia = max(0, (dt_ida - hoje).days)
-
-    mult_classe = {"Econômica": 1.0, "Executiva": 2.35, "Primeira Classe": 3.6}.get(classe_cabine, 1.0)
-    fator_pax_voo = adultos + 0.75 * criancas
-    quartos = max(1, int(np.ceil((adultos + criancas) / 2.0)))
-
-    # Se ativado, consulta Google Flights real via fast-flights como âncora de preço
-    voos_reais = []
-    if tentar_ao_vivo:
-        voos_reais = consultar_google_flights_real(origem_iata, dest_info["iata"], dt_ida, dt_volta, adultos, classe_cabine)
-
-    fator_data = fator_sazonal_data(dt_ida, dt_volta, antecedencia)
-
-    # Seed determinística por (destino, data_ida, duracao) para consistência entre cliques
-    seed_val = abs(hash((dest_info["iata"], dt_ida.toordinal(), duracao))) % (2**31)
-    rng = np.random.default_rng(seed_val)
-
-    if voos_reais:
-        preco_base_voo_unit = float(np.min([v["preco"] for v in voos_reais]))
-        cia_real_top = voos_reais[0]["cia"]
-        fonte_cotacao = "Tempo Real (Google Flights / fast-flights)"
-    else:
-        ruido_mercado = float(rng.uniform(0.93, 1.07))
-        preco_base_voo_unit = dest_info["base_voo"] * fator_data * mult_classe * ruido_mercado
-        cia_real_top = None
-        fonte_cotacao = "Motor Tarifário Sazonal + Deep Link"
-
-    preco_voo_total_ref = preco_base_voo_unit * fator_pax_voo
-    # Hotel com desconto progressivo por noites + efeito pacote
-    fator_noites = 0.90 if duracao in (4, 5) else (0.95 if duracao >= 7 else 1.0)
-    preco_hotel_total_ref = dest_info["diaria_hotel"] * duracao * quartos * fator_data * fator_noites
-
-    ofertas = []
-    for plat in PLATAFORMAS_CONFIG:
-        p_nome = plat["nome"]
-        p_tipo = plat["tipo"]
-        variacao_plat = float(rng.uniform(0.97, 1.04)) * plat["fator_preco"]
-
-        if p_tipo == "Só Voo":
-            bruto = round(preco_voo_total_ref * max(1.0, variacao_plat), 2)
-            detalhe = cia_real_top if (cia_real_top and "Google" in p_nome) else plat["cia_padrao"]
-        else:
-            # Pacote Voo + Hotel (voo + diárias com desconto moderado de bundle de ~5%)
-            bruto = round((preco_voo_total_ref + preco_hotel_total_ref) * 0.95 * max(0.99, variacao_plat), 2)
-            detalhe = f"{plat['cia_padrao']} ({duracao} diárias)"
-
-        desconto_rs, cupom_txt = aplicar_melhor_cupom(p_nome, p_tipo, bruto)
-        final_rs = round(bruto - desconto_rs, 2)
-        custo_dia = round(final_rs / duracao, 2)
-        link = gerar_deep_link(p_nome, p_tipo, origem_iata, dest_info, dt_ida, dt_volta, adultos, criancas)
-
-        ofertas.append({
-            "Destino": dest_nome,
-            "Trecho": "Ida e Volta",
-            "Pessoas": int(adultos + criancas),
-            "Plataforma": p_nome,
-            "Tipo": p_tipo,
-            "Companhia / Hotel": detalhe,
-            "Ida": dt_ida.strftime("%d/%m/%Y"),
-            "Volta": dt_volta.strftime("%d/%m/%Y"),
-            "Duração (dias)": duracao,
-            "Preço Bruto (R$)": bruto,
-            "Cupom Aplicável": cupom_txt,
-            "Desconto (R$)": desconto_rs,
-            "Preço Final (R$)": final_rs,
-            "Custo / Dia (R$)": custo_dia,
-            "Fonte": fonte_cotacao,
-            "Link Direto": link,
-        })
-
-    return pd.DataFrame(ofertas)
+    lista_reais.sort(key=lambda x: x["Preço Total Real Ida e Volta (R$)"])
+    return lista_reais, "OK"
 
 # ==============================================================================
-# 4. EXPORTAÇÃO EXCEL FORMATADA (.XLSX)
+# 4. EXPORTAÇÃO EXCEL (.XLSX) APENAS COM DADOS REAIS E LINKS OFICIAIS
 # ==============================================================================
-def gerar_excel_viagens(df_ofertas, df_cupons, origem_label):
+def gerar_excel_real(df_voos_reais, df_plataformas, origem_label, dest_nome, dt_ida, dt_volta, total_pessoas):
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Melhores_Ofertas"
+    ws.title = "Tarifas_Reais_Ida_Volta"
 
     azul_escuro = "0F294A"
     azul_medio = "1E4E8C"
-    azul_claro = "DBEAFE"
     verde_claro = "DCFCE7"
     cinza_zebra = "F8FAFC"
     borda_cor = "CBD5E1"
@@ -309,76 +211,66 @@ def gerar_excel_viagens(df_ofertas, df_cupons, origem_label):
     fill_sub = PatternFill("solid", fgColor=azul_medio)
     fill_zebra = PatternFill("solid", fgColor=cinza_zebra)
     fill_top = PatternFill("solid", fgColor=verde_claro)
-
     lado = Side(style="thin", color=borda_cor)
     borda = Border(left=lado, right=lado, top=lado, bottom=lado)
 
-    cols_export = [
-        "Destino", "Trecho", "Pessoas", "Plataforma", "Tipo", "Companhia / Hotel",
-        "Ida", "Volta", "Duração (dias)", "Preço Bruto (R$)",
-        "Cupom Aplicável", "Desconto (R$)", "Preço Final (R$)", "Custo / Dia (R$)", "Link Direto"
-    ]
-
-    ws.merge_cells("A1:O1")
-    ws["A1"] = f"COMPARATIVO DE VOOS E PACOTES SAINDO DE {origem_label.upper()}"
+    ws.merge_cells("A1:I1")
+    ws["A1"] = f"TARIFAS REAIS IDA E VOLTA — {origem_label.upper()} -> {dest_nome.upper()}"
     ws["A1"].font = f_titulo
     ws["A1"].fill = fill_titulo
     ws["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
     ws.row_dimensions[1].height = 28
 
-    ws.merge_cells("A2:O2")
-    ws["A2"] = f"Gerado em {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')} | Ordenado pelo menor Preço Final com Cupom"
+    ws.merge_cells("A2:I2")
+    ws["A2"] = f"Ida: {dt_ida.strftime('%d/%m/%Y')} | Volta: {dt_volta.strftime('%d/%m/%Y')} | Viajantes: {total_pessoas} pessoa(s) | Fonte: Google Flights"
     ws["A2"].font = f_sub
     ws["A2"].fill = fill_sub
     ws["A2"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
     ws.row_dimensions[2].height = 20
 
-    for c_i, h in enumerate(cols_export, start=1):
-        c = ws.cell(row=4, column=c_i, value=h)
+    if not df_voos_reais.empty:
+        cols = list(df_voos_reais.columns)
+        for c_i, h in enumerate(cols, start=1):
+            c = ws.cell(row=4, column=c_i, value=h)
+            c.font = f_cab
+            c.fill = fill_titulo
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border = borda
+        for r_i, row in df_voos_reais.iterrows():
+            for c_i, col_n in enumerate(cols, start=1):
+                cel = ws.cell(row=r_i + 5, column=c_i, value=row[col_n])
+                cel.border = borda
+                cel.font = f_bold if "Preço" in col_n else f_body
+                if r_i == 0:
+                    cel.fill = fill_top
+                elif r_i % 2 == 1:
+                    cel.fill = fill_zebra
+                if "Preço" in col_n:
+                    cel.number_format = "R$ #,##0.00"
+    else:
+        ws["A4"] = "Nenhuma tarifa ao vivo foi retornada na consulta."
+
+    ws_p = wb.create_sheet("Links_Oficiais")
+    cols_p = list(df_plataformas.columns)
+    for c_i, h in enumerate(cols_p, start=1):
+        c = ws_p.cell(row=1, column=c_i, value=h)
         c.font = f_cab
         c.fill = fill_titulo
-        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.alignment = Alignment(horizontal="center")
         c.border = borda
-    ws.row_dimensions[4].height = 24
-
-    df_ord = df_ofertas.sort_values("Preço Final (R$)").reset_index(drop=True)
-    for r_i, row in df_ord.iterrows():
-        linha_excel = r_i + 5
-        for c_i, col_name in enumerate(cols_export, start=1):
-            val = row[col_name]
-            cell = ws.cell(row=linha_excel, column=c_i, value=val)
-            cell.border = borda
-            cell.font = f_bold if col_name == "Preço Final (R$)" else f_body
-            if r_i < 2:
-                cell.fill = fill_top
-            elif r_i % 2 == 1:
-                cell.fill = fill_zebra
-
-            if col_name in ("Preço Bruto (R$)", "Desconto (R$)", "Preço Final (R$)", "Custo / Dia (R$)"):
-                cell.number_format = "R$ #,##0.00"
-            elif col_name == "Link Direto":
-                cell.hyperlink = str(val)
-                cell.value = "Abrir Oferta"
-                cell.font = f_link
-                cell.alignment = Alignment(horizontal="center")
-
-    # Aba 2: Cupons Ativos
-    ws_cp = wb.create_sheet("Cupons_Desconto")
-    for c_i, h in enumerate(df_cupons.columns, start=1):
-        ch = ws_cp.cell(row=1, column=c_i, value=h)
-        ch.font = f_cab
-        ch.fill = fill_titulo
-        ch.alignment = Alignment(horizontal="center")
-        ch.border = borda
-    for r_i, row in df_cupons.iterrows():
-        for c_i, val in enumerate(row, start=1):
-            cel = ws_cp.cell(row=r_i + 2, column=c_i, value=val)
+    for r_i, row in df_plataformas.iterrows():
+        for c_i, col_n in enumerate(cols_p, start=1):
+            cel = ws_p.cell(row=r_i + 2, column=c_i, value=row[col_n])
             cel.border = borda
+            if col_n == "Link Direto":
+                cel.hyperlink = str(row[col_n])
+                cel.value = "Abrir Site"
+                cel.font = f_link
 
     for aba in wb.worksheets:
         for col in aba.columns:
             ltr = get_column_letter(col[0].column)
-            max_l = max((len(str(c.value or "")) for c in col if c.row > 2), default=12)
+            max_l = max((len(str(c.value or "")) for c in col if c.row > 2), default=14)
             aba.column_dimensions[ltr].width = min(max(max_l + 4, 14), 42)
 
     buf = io.BytesIO()
@@ -387,63 +279,57 @@ def gerar_excel_viagens(df_ofertas, df_cupons, origem_label):
     return buf.getvalue()
 
 # ==============================================================================
-# 5. INTERFACE STREAMLIT (SIDEBAR + PAINEL PRINCIPAL)
+# 5. INTERFACE STREAMLIT
 # ==============================================================================
-st.title("✈️ Buscador Inteligente de Voos & Pacotes — Saindo de Belo Horizonte")
+st.title("✈️ Buscador de Voos Reais (Ida e Volta) & Pacotes — Saindo de BH")
 st.markdown(
-    "Compara tarifas e pacotes (**Voo + Hotel**) saindo de **Belo Horizonte** em **Google Flights, Skyscanner, Kayak, "
-    "Decolar, ViajaNet, Azul Viagens, GOL, LATAM, Booking, Expedia e MaxMilhas**, com links direcionados para "
-    "páginas de **Voos** ou **Pacotes** e detector de promoções por duração.\n\n"
-    "⚠️ *Transparência sobre os preços:* As OTAs e companhias não liberam API pública gratuita unificada de pacotes e voos "
-    "em tempo real. Quando a consulta ao vivo (`fast-flights`) não retorna tarifa do Google Flights, os valores exibidos "
-    "são **estimativas de referência** (e o preço real no checkout pode variar conforme disponibilidade, taxas e regras de cupom)."
+    "Consulta **tarifas reais de Ida e Volta** diretamente no **Google Flights** (via `fast-flights`) para o número exato de viajantes "
+    "e fornece os **links reais** de **Voos**, **Pacotes (Voo + Hotel)** e **Hospedagem** nas principais plataformas.\n\n"
+    "🔒 **Sem preços inventados:** Este aplicativo exibe **exclusivamente** preços reais retornados na consulta ao vivo para **Ida e Volta**. "
+    "Nenhum valor estimado ou fictício é gerado."
 )
 
-st.sidebar.header("🛫 Origem, Destino e Passageiros")
+st.sidebar.header("🛫 Origem, Destino e Viajantes")
 origem_label = st.sidebar.selectbox("Aeroporto de Origem (BH):", list(ORIGENS_BH.keys()), index=0)
 origem_iata = ORIGENS_BH[origem_label]
 
-explorar_todos = st.sidebar.checkbox("🌎 Explorar Melhores Ofertas (Vários Destinos)", value=False)
-if explorar_todos:
-    destinos_escolhidos = st.sidebar.multiselect(
-        "Destinos para comparar:",
-        options=list(DESTINOS_CATALOGO.keys()),
-        default=[
-            "Fortaleza (FOR) — CE",
-            "Porto de Galinhas / Recife (REC) — PE",
-            "Maceió (MCZ) — AL",
-            "Salvador (SSA) — BA",
-            "Lisboa (LIS) — Portugal",
-        ],
-    )
-else:
-    dest_unico = st.sidebar.selectbox("Destino desejado:", list(DESTINOS_CATALOGO.keys()), index=0)
-    destinos_escolhidos = [dest_unico]
+dest_nome = st.sidebar.selectbox("Destino desejado:", list(DESTINOS_CATALOGO.keys()), index=0)
+dest_info = DESTINOS_CATALOGO[dest_nome]
 
 qtd_pessoas_total = st.sidebar.number_input(
-    "Quantidade Total de Pessoas (ex: 2):",
+    "Quantidade Total de Pessoas:",
     min_value=1,
-    max_value=10,
+    max_value=9,
     value=2,
     step=1,
-    help="Todos os valores de voos, pacotes, custo/dia e promoções são calculados para essa quantidade total de pessoas."
+    help="Todas as consultas buscam o valor total de Ida e Volta para essa quantidade exata de pessoas."
 )
-criancas = st.sidebar.number_input("Dessas, quantas são crianças?", min_value=0, max_value=max(0, int(qtd_pessoas_total) - 1), value=0, step=1)
+criancas = st.sidebar.number_input(
+    "Dessas, quantas são crianças (2 a 11 anos)?",
+    min_value=0,
+    max_value=max(0, int(qtd_pessoas_total) - 1),
+    value=0,
+    step=1
+)
 adultos = max(1, int(qtd_pessoas_total) - int(criancas))
 classe_cabine = st.sidebar.selectbox("Classe:", ["Econômica", "Executiva", "Primeira Classe"], index=0)
 
 st.sidebar.divider()
-st.sidebar.header("📅 Modo de Busca de Datas")
+st.sidebar.header("📅 Datas (Ida e Volta)")
 modo_data = st.sidebar.radio(
-    "Como deseja pesquisar?",
-    options=["Janela Flexível no Mês (Melhor Preço)", "Data Específica"],
+    "Modo de busca:",
+    options=["Data Específica (Ida e Volta)", "Varredura de Melhores Datas no Mês"],
 )
 
 hoje = datetime.date.today()
-if modo_data == "Data Específica":
+if modo_data == "Data Específica (Ida e Volta)":
     dt_ida_esp = st.sidebar.date_input("Data de Ida", value=hoje + datetime.timedelta(days=30), min_value=hoje)
-    dt_volta_esp = st.sidebar.date_input("Data de Volta", value=hoje + datetime.timedelta(days=37), min_value=dt_ida_esp + datetime.timedelta(days=1))
-    duracao_desejada = (dt_volta_esp - dt_ida_esp).days
+    dt_volta_esp = st.sidebar.date_input(
+        "Data de Volta",
+        value=hoje + datetime.timedelta(days=37),
+        min_value=dt_ida_esp + datetime.timedelta(days=1)
+    )
+    duracao_dias = (dt_volta_esp - dt_ida_esp).days
 else:
     meses_nomes = {
         1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
@@ -455,245 +341,215 @@ else:
         m = ((hoje.month - 1 + offset) % 12) + 1
         y = hoje.year + ((hoje.month - 1 + offset) // 12)
         opcoes_meses.append((f"{meses_nomes[m]}/{y}", y, m))
-    mes_sel_label = st.sidebar.selectbox("Mês/Ano da Viagem:", [x[0] for x in opcoes_meses], index=0)
+    mes_sel_label = st.sidebar.selectbox("Mês/Ano:", [x[0] for x in opcoes_meses], index=0)
     _, ano_sel, mes_sel = [x for x in opcoes_meses if x[0] == mes_sel_label][0]
-    duracao_desejada = st.sidebar.slider("Duração desejada (dias):", min_value=2, max_value=21, value=7)
+    duracao_dias = st.sidebar.slider("Duração da viagem (dias):", min_value=2, max_value=21, value=7)
 
-tentar_ao_vivo = st.sidebar.checkbox(
-    "Consultar tarifa ao vivo via fast-flights (quando disponível)",
-    value=False,
-    help="Faz requisição ao vivo ao Google Flights para o destino principal e recalibra as demais plataformas."
+testar_duracoes_vizinhas = st.sidebar.checkbox(
+    "Testar durações vizinhas reais (ex: 5 dias vs 7 dias)",
+    value=True,
+    help="Consulta tarifas reais para durações próximas na mesma data de embarque para identificar economia real."
 )
 
-buscar_btn = st.sidebar.button("🔍 Buscar Melhores Voos e Pacotes", type="primary", use_container_width=True)
+buscar_btn = st.sidebar.button("🔍 Consultar Tarifas Reais (Ida e Volta)", type="primary", use_container_width=True)
 
-# ==============================================================================
-# 6. EXECUÇÃO DA BUSCA + DETECTOR DE PROMOÇÕES POR DURAÇÃO ALTERNATIVA
-# ==============================================================================
-if "resultados_viagem" not in st.session_state:
-    st.session_state["resultados_viagem"] = None
+if "busca_real_state" not in st.session_state:
+    st.session_state["busca_real_state"] = None
 
 if buscar_btn:
-    if not destinos_escolhidos:
-        st.warning("Selecione pelo menos um destino na barra lateral.")
-    else:
-        with st.spinner("Varrendo plataformas, simulando janelas de datas, aplicando cupons e testando durações promocionais..."):
-            todas_ofertas = []
-            historico_mensal = []
-            alertas_promocao = []
+    with st.spinner("Consultando tarifas reais de Ida e Volta no Google Flights..."):
+        if modo_data == "Data Específica (Ida e Volta)":
+            voos_lista, status_msg = consultar_tarifas_reais_ida_volta(
+                origem_iata, dest_info["iata"], dt_ida_esp, dt_volta_esp, adultos, criancas, classe_cabine
+            )
+            dt_ida_escolhida = dt_ida_esp
+            dt_volta_escolhida = dt_volta_esp
+            curva_mes = []
+        else:
+            ultimo_dia = calendar.monthrange(ano_sel, mes_sel)[1]
+            dias_candidatos = [d for d in [3, 9, 15, 21, 26] if d <= ultimo_dia]
+            melhor_lista = []
+            menor_total_mes = float("inf")
+            dt_ida_escolhida = datetime.date(ano_sel, mes_sel, dias_candidatos[0])
+            dt_volta_escolhida = dt_ida_escolhida + datetime.timedelta(days=duracao_dias)
+            status_msg = "Nenhuma data futura disponível no mês selecionado."
+            curva_mes = []
 
-            for dest_nome in destinos_escolhidos:
-                d_info = DESTINOS_CATALOGO[dest_nome]
+            for d_num in dias_candidatos:
+                d_i = datetime.date(ano_sel, mes_sel, d_num)
+                if d_i < hoje:
+                    continue
+                d_v = d_i + datetime.timedelta(days=duracao_dias)
+                v_dia, st_dia = consultar_tarifas_reais_ida_volta(
+                    origem_iata, dest_info["iata"], d_i, d_v, adultos, criancas, classe_cabine
+                )
+                status_msg = st_dia
+                if v_dia:
+                    menor_p = v_dia[0]["Preço Total Real Ida e Volta (R$)"]
+                    curva_mes.append({
+                        "Data Ida": d_i,
+                        "Data Volta": d_v.strftime("%d/%m/%Y"),
+                        "Menor Preço Real Ida e Volta (R$)": menor_p,
+                        "Companhia": v_dia[0]["Companhia Aérea"],
+                    })
+                    if menor_p < menor_total_mes:
+                        menor_total_mes = menor_p
+                        melhor_lista = v_dia
+                        dt_ida_escolhida = d_i
+                        dt_volta_escolhida = d_v
 
-                if modo_data == "Data Específica":
-                    df_base = simular_ofertas_janela(
-                        origem_iata, dest_nome, d_info, dt_ida_esp, dt_volta_esp,
-                        adultos, criancas, classe_cabine, tentar_ao_vivo=tentar_ao_vivo
-                    )
-                    todas_ofertas.append(df_base)
-                    dt_ida_ref = dt_ida_esp
-                else:
-                    # Simula todas as janelas possíveis dentro do mês escolhido (a cada 2 dias para performance e cobertura total)
-                    ultimo_dia_mes = calendar.monthrange(ano_sel, mes_sel)[1]
-                    melhor_df_mes = None
-                    menor_preco_mes = float("inf")
-                    dt_ida_ref = datetime.date(ano_sel, mes_sel, 1)
+            voos_lista = melhor_lista
 
-                    for dia in range(1, max(2, ultimo_dia_mes - duracao_desejada + 2), 2):
-                        d_i = datetime.date(ano_sel, mes_sel, dia)
-                        if d_i < hoje:
-                            continue
-                        d_v = d_i + datetime.timedelta(days=duracao_desejada)
-                        df_win = simular_ofertas_janela(
-                            origem_iata, dest_nome, d_info, d_i, d_v,
-                            adultos, criancas, classe_cabine, tentar_ao_vivo=False
-                        )
-                        min_voo_dia = df_win[df_win["Tipo"] == "Só Voo"]["Preço Final (R$)"].min()
-                        min_pac_dia = df_win[df_win["Tipo"] == "Pacote (Voo + Hotel)"]["Preço Final (R$)"].min()
-                        historico_mensal.append({
-                            "Destino": dest_nome,
-                            "Data Ida": d_i,
-                            "Menor Voo (R$)": min_voo_dia,
-                            "Menor Pacote (R$)": min_pac_dia,
-                        })
-                        if min_pac_dia < menor_preco_mes:
-                            menor_preco_mes = min_pac_dia
-                            melhor_df_mes = df_win
-                            dt_ida_ref = d_i
+        alerta_duracao = None
+        if voos_lista and testar_duracoes_vizinhas:
+            preco_ref_atual = voos_lista[0]["Preço Total Real Ida e Volta (R$)"]
+            for d_alt in [d for d in [5, 6, 8] if d != duracao_dias]:
+                d_v_alt = dt_ida_escolhida + datetime.timedelta(days=d_alt)
+                v_alt, _ = consultar_tarifas_reais_ida_volta(
+                    origem_iata, dest_info["iata"], dt_ida_escolhida, d_v_alt, adultos, criancas, classe_cabine
+                )
+                if v_alt:
+                    p_alt = v_alt[0]["Preço Total Real Ida e Volta (R$)"]
+                    eco = preco_ref_atual - p_alt
+                    if eco >= 150.0:
+                        if alerta_duracao is None or p_alt < alerta_duracao["preco_alt"]:
+                            alerta_duracao = {
+                                "dur_orig": duracao_dias,
+                                "dur_alt": d_alt,
+                                "volta_alt": d_v_alt.strftime("%d/%m/%Y"),
+                                "preco_orig": preco_ref_atual,
+                                "preco_alt": p_alt,
+                                "economia": eco,
+                                "cia": v_alt[0]["Companhia Aérea"],
+                            }
 
-                    if melhor_df_mes is not None:
-                        if tentar_ao_vivo:
-                            melhor_df_mes = simular_ofertas_janela(
-                                origem_iata, dest_nome, d_info,
-                                dt_ida_ref, dt_ida_ref + datetime.timedelta(days=duracao_desejada),
-                                adultos, criancas, classe_cabine, tentar_ao_vivo=True
-                            )
-                        todas_ofertas.append(melhor_df_mes)
-                        df_base = melhor_df_mes
-                    else:
-                        df_base = pd.DataFrame()
+        st.session_state["busca_real_state"] = {
+            "voos_lista": voos_lista,
+            "status_msg": status_msg,
+            "dt_ida": dt_ida_escolhida,
+            "dt_volta": dt_volta_escolhida,
+            "curva_mes": curva_mes,
+            "alerta_duracao": alerta_duracao,
+            "origem_label": origem_label,
+            "origem_iata": origem_iata,
+            "dest_nome": dest_nome,
+            "dest_info": dest_info,
+            "adultos": adultos,
+            "criancas": criancas,
+            "total_pessoas": int(adultos + criancas),
+        }
 
-                # Detector de promoções em durações vizinhas (ex: 4, 5, 6, 8, 9 dias)
-                if not df_base.empty:
-                    min_pac_atual = df_base[df_base["Tipo"] == "Pacote (Voo + Hotel)"]["Preço Final (R$)"].min()
-                    duracoes_vizinhas = [d for d in [4, 5, 6, 8, 9] if d != duracao_desejada and d >= 2]
-                    melhor_alt = None
-                    for d_alt in duracoes_vizinhas:
-                        df_alt = simular_ofertas_janela(
-                            origem_iata, dest_nome, d_info,
-                            dt_ida_ref, dt_ida_ref + datetime.timedelta(days=d_alt),
-                            adultos, criancas, classe_cabine, tentar_ao_vivo=False
-                        )
-                        min_pac_alt = df_alt[df_alt["Tipo"] == "Pacote (Voo + Hotel)"]["Preço Final (R$)"].min()
-                        economia = min_pac_atual - min_pac_alt
-                        pct_eco = (economia / min_pac_atual) * 100.0 if min_pac_atual > 0 else 0.0
-                        if economia >= 180.0 and pct_eco >= 10.0:
-                            if melhor_alt is None or min_pac_alt < melhor_alt["preco_alt"]:
-                                melhor_alt = {
-                                    "destino": dest_nome,
-                                    "dur_orig": duracao_desejada,
-                                    "dur_alt": d_alt,
-                                    "preco_orig": min_pac_atual,
-                                    "preco_alt": min_pac_alt,
-                                    "economia": economia,
-                                    "pct": pct_eco,
-                                    "df_alt": df_alt,
-                                }
-                    if melhor_alt is not None:
-                        alertas_promocao.append(melhor_alt)
+state = st.session_state["busca_real_state"]
 
-            df_total = pd.concat(todas_ofertas, ignore_index=True) if todas_ofertas else pd.DataFrame()
-            st.session_state["resultados_viagem"] = {
-                "df_total": df_total,
-                "df_mensal": pd.DataFrame(historico_mensal),
-                "alertas": alertas_promocao,
-                "origem_label": origem_label,
-                "duracao": duracao_desejada,
-            }
-
-res_v = st.session_state["resultados_viagem"]
-
-if res_v is None or res_v["df_total"].empty:
-    st.info("👈 Configure sua origem em **Belo Horizonte**, o destino, o modo de datas e clique em **🔍 Buscar Melhores Voos e Pacotes**.")
+if state is None:
+    st.info("👈 Configure **Origem**, **Destino**, **Quantidade de Pessoas** e **Datas (Ida e Volta)** na barra lateral e clique em **🔍 Consultar Tarifas Reais (Ida e Volta)**.")
 else:
-    df_all = res_v["df_total"]
-    alertas = res_v["alertas"]
+    total_pax = state["total_pessoas"]
+    dt_i = state["dt_ida"]
+    dt_v = state["dt_volta"]
+    dur_ef = (dt_v - dt_i).days
 
-    # ==========================================================================
-    # ALERTAS INTELIGENTES DE PROMOÇÃO POR DURAÇÃO ALTERNATIVA
-    # ==========================================================================
-    for al in alertas:
-        st.warning(
-            f"💡 **PROMOÇÃO DETECTADA ({al['destino']}):** Alterando sua estadia de **{al['dur_orig']} dias** "
-            f"para **{al['dur_alt']} dias** na mesma janela de embarque, o menor pacote cai de "
-            f"**R$ {al['preco_orig']:,.2f}** para **R$ {al['preco_alt']:,.2f}** — economia de "
-            f"**R$ {al['economia']:,.2f} ({al['pct']:.1f}% mais barato)**!"
-        )
-        with st.expander(f"Ver ofertas da promoção de {al['dur_alt']} dias para {al['destino']}"):
-            st.dataframe(
-                al["df_alt"].sort_values("Preço Final (R$)").head(6),
-                use_container_width=True,
-                hide_index=True,
-                column_config={"Link Direto": st.column_config.LinkColumn("Link Direto", display_text="Abrir Oferta")},
-            )
-
-    # ==========================================================================
-    # DESTAQUE NO TOPO: TOP 2 VOOS E TOP 2 PACOTES
-    # ==========================================================================
-    total_pax_exib = int(adultos + criancas)
-    st.subheader(f"🏆 Melhores Oportunidades para {total_pax_exib} {'Pessoa' if total_pax_exib == 1 else 'Pessoas'} (Valores Totais do Grupo)")
     st.info(
-        f"📌 **Resumo da Busca (Ida e Volta — {total_pax_exib} {'Pessoa' if total_pax_exib == 1 else 'Pessoas'}):** "
-        f"Origem **{origem_label}** | Destino(s): **{', '.join([DESTINOS_CATALOGO[d]['iata'] for d in destinos_escolhidos])}** | "
-        f"Todos os valores exibidos (voos, pacotes e promoções) já consideram **ida e volta** para **{total_pax_exib} {'pessoa' if total_pax_exib == 1 else 'pessoas'}**. "
-        "Como as agências online bloqueiam ou alteram parâmetros de busca externos em páginas de pacotes/voos, os links abrem a página oficial "
-        "da respectiva seção para você confirmar as datas e concluir com o cupom."
+        f"📌 **Dados da Pesquisa (Ida e Volta — {total_pax} {'Pessoa' if total_pax == 1 else 'Pessoas'}):** "
+        f"**{state['origem_label']}** ➡️ **{state['dest_nome']}** | "
+        f"Ida: **{dt_i.strftime('%d/%m/%Y')}** | Volta: **{dt_v.strftime('%d/%m/%Y')}** ({dur_ef} dias)"
     )
-    col_v, col_p = st.columns(2)
 
-    df_voos = df_all[df_all["Tipo"] == "Só Voo"].sort_values("Preço Final (R$)").reset_index(drop=True)
-    df_pacotes = df_all[df_all["Tipo"] == "Pacote (Voo + Hotel)"].sort_values("Preço Final (R$)").reset_index(drop=True)
+    if state["alerta_duracao"] is not None:
+        al = state["alerta_duracao"]
+        st.success(
+            f"💡 **Economia Real Encontrada ao Ajustar Duração ({al['dur_orig']} → {al['dur_alt']} dias, volta em {al['volta_alt']}):** "
+            f"O menor voo real **Ida e Volta** para **{total_pax} pessoa(s)** cai de **R$ {al['preco_orig']:,.2f}** "
+            f"para **R$ {al['preco_alt']:,.2f}** ({al['cia']}) — economia real de **R$ {al['economia']:,.2f}**!"
+        )
 
-    with col_v:
-        st.markdown("### 🛫 Top 2 Melhores Voos")
-        if not df_voos.empty:
-            st.dataframe(
-                df_voos[["Destino", "Plataforma", "Ida", "Volta", "Cupom Aplicável", "Preço Final (R$)", "Link Direto"]].head(2),
-                use_container_width=True,
-                hide_index=True,
-                column_config={"Link Direto": st.column_config.LinkColumn("Link Direto", display_text="Reservar Voo")},
-            )
+    voos_reais = state["voos_lista"]
+    st.subheader(f"🛫 Tarifas Reais Encontradas — Ida e Volta para {total_pax} {'Pessoa' if total_pax == 1 else 'Pessoas'}")
 
-    with col_p:
-        st.markdown("### 🏨 Top 2 Melhores Pacotes (Voo + Hotel)")
-        if not df_pacotes.empty:
-            st.dataframe(
-                df_pacotes[["Destino", "Plataforma", "Ida", "Volta", "Cupom Aplicável", "Preço Final (R$)", "Link Direto"]].head(2),
-                use_container_width=True,
-                hide_index=True,
-                column_config={"Link Direto": st.column_config.LinkColumn("Link Direto", display_text="Reservar Pacote")},
-            )
+    if not voos_reais:
+        st.warning(
+            f"⚠️ Não foi possível obter preços ao vivo nesta tentativa ({state['status_msg']}). "
+            "Nenhum preço simulado foi gerado. Abra o link direto do **Google Flights**, **Skyscanner** ou **Decolar** na tabela abaixo "
+            "(que já abrem com origem, destino e datas preenchidos)."
+        )
+        df_voos_show = pd.DataFrame()
+    else:
+        df_voos_show = pd.DataFrame(voos_reais)
+        df_voos_show.insert(0, "Trecho", "Ida e Volta")
+        df_voos_show.insert(1, "Viajantes", f"{total_pax} pessoa(s)")
+        df_voos_show["Por Pessoa (Média R$)"] = (df_voos_show["Preço Total Real Ida e Volta (R$)"] / total_pax).round(2)
 
-    st.divider()
-
-    # ==========================================================================
-    # ABAS DETALHADAS: COMPARATIVO MULTI-PLATAFORMA, GRÁFICO MENSAL E CUPONS
-    # ==========================================================================
-    aba_comp, aba_graf, aba_cup = st.tabs([
-        "📋 Comparativo Completo (Todas as Plataformas)",
-        "📈 Evolução de Preços no Mês",
-        "🎟️ Central de Cupons & Descontos",
-    ])
-
-    with aba_comp:
-        f_tipo = st.radio("Filtrar por modalidade:", ["Todos", "Só Voo", "Pacote (Voo + Hotel)"], horizontal=True)
-        df_vis = df_all if f_tipo == "Todos" else df_all[df_all["Tipo"] == f_tipo]
-        df_vis = df_vis.sort_values("Preço Final (R$)").reset_index(drop=True)
+        m1, m2, m3 = st.columns(3)
+        m1.metric(
+            f"Menor Preço Real Ida e Volta ({total_pax} pax)",
+            f"R$ {df_voos_show['Preço Total Real Ida e Volta (R$)'].min():,.2f}"
+        )
+        m2.metric(
+            "Média por Pessoa (Ida e Volta)",
+            f"R$ {(df_voos_show['Preço Total Real Ida e Volta (R$)'].min() / total_pax):,.2f}"
+        )
+        m3.metric("Companhia Mais Barata", df_voos_show.iloc[0]["Companhia Aérea"])
 
         st.dataframe(
-            df_vis,
+            df_voos_show,
             use_container_width=True,
             hide_index=True,
             column_config={
-                "Preço Bruto (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Desconto (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Preço Final (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Custo / Dia (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Link Direto": st.column_config.LinkColumn("Link Direto", display_text="Ir para Plataforma"),
+                "Preço Total Real Ida e Volta (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Por Pessoa (Média R$)": st.column_config.NumberColumn(format="R$ %.2f"),
             },
         )
 
-        df_cupons_exp = pd.DataFrame(CUPONS_ATIVOS)
-        xlsx_data = gerar_excel_viagens(df_vis, df_cupons_exp, res_v["origem_label"])
-        st.download_button(
-            label="📥 Exportar Comparativo Completo e Links para Excel (.xlsx)",
-            data=xlsx_data,
-            file_name=f"ofertas_viagens_{origem_iata}_{datetime.date.today().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
+    if state["curva_mes"]:
+        st.subheader("📈 Menores Preços Reais Ida e Volta Encontrados no Mês")
+        df_c = pd.DataFrame(state["curva_mes"]).sort_values("Data Ida")
+        st.line_chart(df_c.set_index("Data Ida")[["Menor Preço Real Ida e Volta (R$)"]], use_container_width=True)
+        st.dataframe(df_c, use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.subheader("🔗 Links Reais das Plataformas (Voos, Pacotes e Hospedagem)")
+    st.caption(
+        "Os buscadores de voos (Google Flights, Skyscanner, Kayak, Decolar Voos, ViajaNet Voos, LATAM, MaxMilhas) e Booking "
+        "abrem já com origem, destino, datas e viajantes preenchidos. Para Pacotes (Voo + Hotel), os links abrem a página oficial de pacotes de cada operadora."
+    )
+
+    linhas_plat = []
+    for p in PLATAFORMAS_BUSCA:
+        link_p = gerar_link_plataforma(
+            p["nome"], p["tipo"], state["origem_iata"], state["dest_info"],
+            dt_i, dt_v, state["adultos"], state["criancas"]
         )
+        linhas_plat.append({
+            "Plataforma": p["nome"],
+            "Modalidade": p["tipo"],
+            "Trecho": "Ida e Volta",
+            "Viajantes": f"{total_pax} pessoa(s)",
+            "Observação": p["obs"],
+            "Link Direto": link_p,
+        })
+    df_plat_show = pd.DataFrame(linhas_plat)
 
-    with aba_graf:
-        df_m = res_v["df_mensal"]
-        if df_m.empty:
-            st.info("Selecione o modo **Janela Flexível no Mês** na barra lateral para visualizar a curva de preços ao longo do mês.")
-        else:
-            st.subheader("Melhores Dias de Embarque no Mês Selecionado")
-            dest_graf = st.selectbox("Destino no gráfico:", df_m["Destino"].unique().tolist())
-            sub_m = df_m[df_m["Destino"] == dest_graf].sort_values("Data Ida").set_index("Data Ida")
-            st.line_chart(sub_m[["Menor Voo (R$)", "Menor Pacote (R$)"]], use_container_width=True)
+    st.dataframe(
+        df_plat_show,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Link Direto": st.column_config.LinkColumn("Link Direto", display_text="Abrir Site"),
+        },
+    )
 
-    with aba_cup:
-        st.subheader("🎟️ Cupons de Desconto e Campanhas Disponíveis")
-        st.markdown("Copie o código abaixo e aplique na tela de pagamento da plataforma selecionada:")
-        for cp in CUPONS_ATIVOS:
-            if cp["Desconto_Pct"] > 0:
-                c1, c2, c3 = st.columns([2, 2, 4])
-                c1.markdown(f"**{cp['Plataforma']}** ({cp['Tipo_Alvo']})")
-                c2.code(cp["Codigo"], language=None)
-                c3.caption(cp["Regra"])
+    xlsx_bytes = gerar_excel_real(
+        df_voos_show, df_plat_show, state["origem_label"], state["dest_nome"], dt_i, dt_v, total_pax
+    )
+    st.download_button(
+        label="📥 Exportar Tarifas Reais e Links para Excel (.xlsx)",
+        data=xlsx_bytes,
+        file_name=f"voos_reais_{state['origem_iata']}_{state['dest_info']['iata']}_{dt_i.strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="primary",
+    )
 
 st.caption(
-    "Aviso: Tarifas e disponibilidade oscilam em tempo real nas companhias aéreas e agências online. "
-    "Sempre confira as regras de bagagem, taxas de embarque e validade do cupom no link direto da plataforma antes de concluir a compra."
+    "Nota: Apenas preços reais retornados pelo Google Flights são exibidos. Para pacotes Voo + Hotel, consulte os links oficiais "
+    "das operadoras informando o trecho de Ida e Volta e a quantidade de viajantes acima."
 )
