@@ -329,6 +329,165 @@ def executar_walk_forward(df_concursos):
         "jogo_3": jogo_3,
     }
 
+
+def gerar_excel_jogos(res, df_conc):
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Jogos_Sugeridos"
+
+    verde_escuro = "1B4332"
+    verde_medio = "2D6A4F"
+    verde_claro = "D8F3DC"
+    amarelo_suave = "FEF3C7"
+    cinza_zebra = "F8FAFC"
+    borda_cor = "CBD5E1"
+
+    f_titulo = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
+    f_sub = Font(name="Calibri", size=10, italic=True, color="E2E8F0")
+    f_cab = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+    f_bold = Font(name="Calibri", size=10, bold=True, color="1E293B")
+    f_num_fixa = Font(name="Calibri", size=11, bold=True, color="1B4332")
+    f_num_excl = Font(name="Calibri", size=11, bold=True, color="92400E")
+
+    fill_titulo = PatternFill("solid", fgColor=verde_escuro)
+    fill_sub = PatternFill("solid", fgColor=verde_medio)
+    fill_fixa = PatternFill("solid", fgColor=verde_claro)
+    fill_excl = PatternFill("solid", fgColor=amarelo_suave)
+    fill_zebra = PatternFill("solid", fgColor=cinza_zebra)
+
+    lado = Side(style="thin", color=borda_cor)
+    borda = Border(left=lado, right=lado, top=lado, bottom=lado)
+
+    # Cabeçalho principal (18 colunas: Jogo, Tipo / Perfil, Dezena 01..Dezena 15, Qtd Fixas)
+    ws.merge_cells("A1:R1")
+    ws["A1"] = "LOTOFÁCIL — 3 JOGOS SUGERIDOS (FECHAMENTO 25 DEZENAS)"
+    ws["A1"].font = f_titulo
+    ws["A1"].fill = fill_titulo
+    ws["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[1].height = 28
+
+    c_ini = int(df_conc.iloc[0]["Concurso"])
+    c_fim = int(df_conc.iloc[-1]["Concurso"])
+    ws.merge_cells("A2:R2")
+    ws["A2"] = f"Base: Concursos {c_ini} a {c_fim} ({len(df_conc)} sorteios) | Verde = 10 Fixas | Amarelo = 5 Exclusivas por jogo"
+    ws["A2"].font = f_sub
+    ws["A2"].fill = fill_sub
+    ws["A2"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[2].height = 20
+
+    colunas = ["Jogo", "Estratégia"] + [f"Bola {i:02d}" for i in range(1, 16)] + ["Fixas Repetidas"]
+    for idx_c, nome_c in enumerate(colunas, start=1):
+        c = ws.cell(row=4, column=idx_c, value=nome_c)
+        c.font = f_cab
+        c.fill = fill_titulo
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = borda
+    ws.row_dimensions[4].height = 24
+
+    fixas_set = set(res["fixas_10"])
+    jogos_lista = [
+        ("Jogo 1", "10 Fixas + 5 Exclusivas (Grupo 1)", res["jogo_1"]),
+        ("Jogo 2", "10 Fixas + 5 Exclusivas (Grupo 2)", res["jogo_2"]),
+        ("Jogo 3", "10 Fixas + 5 Exclusivas (Grupo 3)", res["jogo_3"]),
+    ]
+
+    for idx_j, (nome_j, desc_j, dezenas_j) in enumerate(jogos_lista, start=5):
+        c1 = ws.cell(row=idx_j, column=1, value=nome_j)
+        c1.font = f_bold
+        c1.alignment = Alignment(horizontal="center", vertical="center")
+        c1.border = borda
+
+        c2 = ws.cell(row=idx_j, column=2, value=desc_j)
+        c2.font = f_bold
+        c2.alignment = Alignment(horizontal="left", vertical="center")
+        c2.border = borda
+
+        for pos_d, dez in enumerate(dezenas_j, start=3):
+            cd = ws.cell(row=idx_j, column=pos_d, value=int(dez))
+            cd.number_format = "00"
+            cd.alignment = Alignment(horizontal="center", vertical="center")
+            cd.border = borda
+            if dez in fixas_set:
+                cd.fill = fill_fixa
+                cd.font = f_num_fixa
+            else:
+                cd.fill = fill_excl
+                cd.font = f_num_excl
+
+        c_tot = ws.cell(row=idx_j, column=18, value=10)
+        c_tot.font = f_bold
+        c_tot.alignment = Alignment(horizontal="center", vertical="center")
+        c_tot.border = borda
+        ws.row_dimensions[idx_j].height = 24
+
+    # Linha de referência com apenas as 10 Fixas
+    ws.cell(row=9, column=1, value="10 Fixas").font = f_bold
+    ws.cell(row=9, column=1).alignment = Alignment(horizontal="center")
+    ws.cell(row=9, column=1).border = borda
+    ws.cell(row=9, column=2, value="Dezenas que se repetem nos 3 jogos").font = f_bold
+    ws.cell(row=9, column=2).border = borda
+    for pos_f, dez_f in enumerate(res["fixas_10"], start=3):
+        cf = ws.cell(row=9, column=pos_f, value=int(dez_f))
+        cf.number_format = "00"
+        cf.fill = fill_fixa
+        cf.font = f_num_fixa
+        cf.alignment = Alignment(horizontal="center")
+        cf.border = borda
+
+    # Aba 2: Ranking das 25 Dezenas
+    ws_rk = wb.create_sheet("Ranking_25_Dezenas")
+    df_rk = res["df_rank_dez"].copy()
+    df_rk["Papel nos 3 Jogos"] = [
+        "Fixa (Todos)" if i < 10 else ("Exclusiva Jogo 1" if i < 15 else ("Exclusiva Jogo 2" if i < 20 else "Exclusiva Jogo 3"))
+        for i in range(len(df_rk))
+    ]
+    for c_i, h in enumerate(df_rk.columns, start=1):
+        ch = ws_rk.cell(row=1, column=c_i, value=h)
+        ch.font = f_cab
+        ch.fill = fill_titulo
+        ch.alignment = Alignment(horizontal="center")
+        ch.border = borda
+    for r_i, row in df_rk.iterrows():
+        for c_i, val in enumerate(row, start=1):
+            cel = ws_rk.cell(row=r_i + 2, column=c_i, value=val)
+            cel.border = borda
+            if r_i % 2 == 1:
+                cel.fill = fill_zebra
+
+    # Aba 3: Eficiência das Táticas
+    ws_tat = wb.create_sheet("Eficiencia_Taticas")
+    df_tat = res["df_resumo_tat"]
+    for c_i, h in enumerate(df_tat.columns, start=1):
+        ch = ws_tat.cell(row=1, column=c_i, value=h)
+        ch.font = f_cab
+        ch.fill = fill_titulo
+        ch.alignment = Alignment(horizontal="center")
+        ch.border = borda
+    for r_i, row in df_tat.iterrows():
+        for c_i, val in enumerate(row, start=1):
+            cel = ws_tat.cell(row=r_i + 2, column=c_i, value=val)
+            cel.border = borda
+            if r_i % 2 == 1:
+                cel.fill = fill_zebra
+
+    for aba in wb.worksheets:
+        for col in aba.columns:
+            col_ltr = get_column_letter(col[0].column)
+            if aba.title == "Jogos_Sugeridos" and 3 <= col[0].column <= 17:
+                aba.column_dimensions[col_ltr].width = 10
+            else:
+                max_l = max((len(str(c.value or "")) for c in col if c.row > 2), default=12)
+                aba.column_dimensions[col_ltr].width = max(max_l + 4, 14)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
 def formatar_dezenas(lista):
     return " - ".join(f"{d:02d}" for d in lista)
 
@@ -403,6 +562,23 @@ else:
     st.caption(
         f"Conferência estrutural: Total de dezenas distintas cobertas = {len(uniao_25)}/25 | "
         f"Repetidas entre Jogo 1 e 2 = {len(inter_12)} | Jogo 1 e 3 = {len(inter_13)} | Jogo 2 e 3 = {len(inter_23)}."
+    )
+
+    # Tabela em colunas (1 número por coluna) + Botão de Exportação para Excel (.xlsx)
+    df_export_preview = pd.DataFrame([
+        {"Jogo": "Jogo 1", **{f"Bola {i+1:02d}": f"{d:02d}" for i, d in enumerate(res["jogo_1"])}},
+        {"Jogo": "Jogo 2", **{f"Bola {i+1:02d}": f"{d:02d}" for i, d in enumerate(res["jogo_2"])}},
+        {"Jogo": "Jogo 3", **{f"Bola {i+1:02d}": f"{d:02d}" for i, d in enumerate(res["jogo_3"])}},
+    ])
+    st.dataframe(df_export_preview, use_container_width=True, hide_index=True)
+
+    excel_bytes = gerar_excel_jogos(res, df_conc)
+    st.download_button(
+        label="📥 Exportar os 3 Jogos para Excel (.xlsx — 1 número por coluna)",
+        data=excel_bytes,
+        file_name=f"lotofacil_3_jogos_conc_{c_ini}_a_{c_fim}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="primary"
     )
 
     st.divider()
