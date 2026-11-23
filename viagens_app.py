@@ -82,46 +82,43 @@ def gerar_deep_link(plataforma, tipo, origem_iata, dest_info, dt_ida, dt_volta, 
     dest_iata = dest_info["iata"]
     ida_iso = dt_ida.strftime("%Y-%m-%d")
     volta_iso = dt_volta.strftime("%Y-%m-%d")
-    ida_yymmdd = dt_ida.strftime("%y%m%d")
-    volta_yymmdd = dt_volta.strftime("%y%m%d")
-    cidade_q = urllib.parse.quote(dest_info["cidade"])
 
     if "Google Flights" in plataforma:
-        q = urllib.parse.quote(f"Voos de {origem_iata} para {dest_iata} de {ida_iso} a {volta_iso} para {adultos} adultos")
+        q = urllib.parse.quote(f"Flights from {origem_iata} to {dest_iata} on {ida_iso} through {volta_iso}")
         return f"https://www.google.com/travel/flights?q={q}&curr=BRL&hl=pt-BR"
     elif "Skyscanner" in plataforma:
-        return f"https://www.skyscanner.com.br/transporte/passagens-aereas/{origem_iata.lower()}/{dest_iata.lower()}/{ida_yymmdd}/{volta_yymmdd}/?adults={adultos}&children={criancas}"
+        return "https://www.skyscanner.com.br/"
     elif "Kayak" in plataforma:
-        return f"https://www.kayak.com.br/flights/{origem_iata}-{dest_iata}/{ida_iso}/{volta_iso}/{adultos}adults"
+        return "https://www.kayak.com.br/flights"
     elif "Decolar" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.decolar.com/pacotes/?from={origem_iata}&to={dest_iata}&departure={ida_iso}&return={volta_iso}&adults={adultos}&children={criancas}"
-        return f"https://www.decolar.com/shop/flights/results/roundtrip/{origem_iata}/{dest_iata}/{ida_iso}/{volta_iso}/{adultos}/{criancas}/0"
+            return "https://www.decolar.com/pacotes/"
+        return "https://www.decolar.com/passagens-aereas/"
     elif "ViajaNet" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.viajanet.com.br/pacotes?origem={origem_iata}&destino={dest_iata}&ida={ida_iso}&volta={volta_iso}&adultos={adultos}&children={criancas}"
-        return f"https://www.viajanet.com.br/busca/passagens/voos#/{origem_iata}/{dest_iata}/RT/{ida_iso}/{volta_iso}/-/-/{adultos}/{criancas}/0"
+            return "https://www.viajanet.com.br/pacotes"
+        return "https://www.viajanet.com.br/passagens-aereas"
     elif "Azul" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.azulviagens.com.br/pacotes?origem={origem_iata}&destino={dest_iata}&ida={ida_iso}&volta={volta_iso}&adultos={adultos}&children={criancas}"
-        return f"https://www.voeazul.com.br/br/pt/home/selecao-voo?c[0].ds={origem_iata}&c[0].as={dest_iata}&c[0].std={dt_ida.strftime('%m/%d/%Y')}&c[1].ds={dest_iata}&c[1].as={origem_iata}&c[1].std={dt_volta.strftime('%m/%d/%Y')}&p[0].t=ADT&p[0].c={adultos}"
+            return "https://www.azulviagens.com.br/packages/"
+        return "https://www.voeazul.com.br/br/pt/home"
     elif "GOL" in plataforma:
-        return f"https://b2c.voegol.com.br/compra/busca-parceiros?pv=br&tipo=DF&de={origem_iata}&para={dest_iata}&ida={dt_ida.strftime('%d-%m-%Y')}&volta={dt_volta.strftime('%d-%m-%Y')}&ADT={adultos}&CHD={criancas}"
+        return "https://www.voegol.com.br/"
     elif "LATAM" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.latamairlines.com/br/pt/latam-travel/pacotes?origin={origem_iata}&destination={dest_iata}&outbound={ida_iso}&inbound={volta_iso}&adt={adultos}&chd={criancas}"
-        return f"https://www.latamairlines.com/br/pt/oferta-voos?origin={origem_iata}&destination={dest_iata}&outbound={ida_iso}T12%3A00%3A00.000Z&inbound={volta_iso}T12%3A00%3A00.000Z&adt={adultos}&chd={criancas}&trip=RT"
+            return "https://www.latamairlines.com/br/pt/pacotes-viagens"
+        return "https://www.latamairlines.com/br/pt"
     elif "Booking" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.booking.com/flights/index.pt-br.html?from={origem_iata}&to={dest_iata}&depart={ida_iso}&return={volta_iso}&adults={adultos}&children={criancas}"
-        return f"https://www.booking.com/searchresults.pt-br.html?ss={cidade_q}&checkin={ida_iso}&checkout={volta_iso}&group_adults={adultos}&group_children={criancas}"
+            return "https://www.booking.com/flights/index.pt-br.html"
+        return "https://www.booking.com/"
     elif "Expedia" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.expedia.com.br/Packages?origin={origem_iata}&destination={dest_iata}&startDate={ida_iso}&endDate={volta_iso}&adults={adultos}&children={criancas}"
-        return f"https://www.expedia.com.br/Hotel-Search?destination={cidade_q}&startDate={ida_iso}&endDate={volta_iso}&adults={adultos}"
+            return "https://www.expedia.com.br/Pacotes"
+        return "https://www.expedia.com.br/"
     elif "MaxMilhas" in plataforma:
-        return f"https://www.maxmilhas.com.br/busca-passagens-aereas/RT/{origem_iata}/{dest_iata}/{ida_iso}/{volta_iso}/{adultos}/{criancas}/0/EC"
-    return f"https://www.google.com/travel/flights?q={origem_iata}+{dest_iata}+{ida_iso}"
+        return "https://www.maxmilhas.com.br/"
+    return "https://www.google.com/travel/flights?curr=BRL&hl=pt-BR"
 
 # ==============================================================================
 # 3. CONECTOR OPCIONAL AO VIVO (FAST-FLIGHTS) + MODELAGEM SAZONAL B3/TURISMO
@@ -267,6 +264,7 @@ def simular_ofertas_janela(origem_iata, dest_nome, dest_info, dt_ida, dt_volta, 
 
         ofertas.append({
             "Destino": dest_nome,
+            "Trecho": "Ida e Volta",
             "Pessoas": int(adultos + criancas),
             "Plataforma": p_nome,
             "Tipo": p_tipo,
@@ -316,19 +314,19 @@ def gerar_excel_viagens(df_ofertas, df_cupons, origem_label):
     borda = Border(left=lado, right=lado, top=lado, bottom=lado)
 
     cols_export = [
-        "Destino", "Pessoas", "Plataforma", "Tipo", "Companhia / Hotel",
+        "Destino", "Trecho", "Pessoas", "Plataforma", "Tipo", "Companhia / Hotel",
         "Ida", "Volta", "Duração (dias)", "Preço Bruto (R$)",
         "Cupom Aplicável", "Desconto (R$)", "Preço Final (R$)", "Custo / Dia (R$)", "Link Direto"
     ]
 
-    ws.merge_cells("A1:N1")
+    ws.merge_cells("A1:O1")
     ws["A1"] = f"COMPARATIVO DE VOOS E PACOTES SAINDO DE {origem_label.upper()}"
     ws["A1"].font = f_titulo
     ws["A1"].fill = fill_titulo
     ws["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
     ws.row_dimensions[1].height = 28
 
-    ws.merge_cells("A2:N2")
+    ws.merge_cells("A2:O2")
     ws["A2"] = f"Gerado em {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')} | Ordenado pelo menor Preço Final com Cupom"
     ws["A2"].font = f_sub
     ws["A2"].fill = fill_sub
@@ -604,9 +602,12 @@ else:
     # ==========================================================================
     total_pax_exib = int(adultos + criancas)
     st.subheader(f"🏆 Melhores Oportunidades para {total_pax_exib} {'Pessoa' if total_pax_exib == 1 else 'Pessoas'} (Valores Totais do Grupo)")
-    st.caption(
-        "Dica de navegação: Alguns sites de pacotes (como Decolar, ViajaNet, Azul Viagens e LATAM Travel) "
-        "podem exigir que você confirme o filtro 'Voo + Hotel' e as datas no formulário interno do próprio site após abrir o link."
+    st.info(
+        f"📌 **Resumo da Busca (Ida e Volta — {total_pax_exib} {'Pessoa' if total_pax_exib == 1 else 'Pessoas'}):** "
+        f"Origem **{origem_label}** | Destino(s): **{', '.join([DESTINOS_CATALOGO[d]['iata'] for d in destinos_escolhidos])}** | "
+        f"Todos os valores exibidos (voos, pacotes e promoções) já consideram **ida e volta** para **{total_pax_exib} {'pessoa' if total_pax_exib == 1 else 'pessoas'}**. "
+        "Como as agências online bloqueiam ou alteram parâmetros de busca externos em páginas de pacotes/voos, os links abrem a página oficial "
+        "da respectiva seção para você confirmar as datas e concluir com o cupom."
     )
     col_v, col_p = st.columns(2)
 
