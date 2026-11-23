@@ -88,7 +88,7 @@ def gerar_deep_link(plataforma, tipo, origem_iata, dest_info, dt_ida, dt_volta, 
     orig_slug = "belo-horizonte"
 
     if "Google Flights" in plataforma:
-        q = urllib.parse.quote(f"Flights from {origem_iata} to {dest_iata} on {ida_iso} through {volta_iso}")
+        q = urllib.parse.quote(f"Voos de {origem_iata} para {dest_iata} de {ida_iso} a {volta_iso}")
         return f"https://www.google.com/travel/flights?q={q}&curr=BRL&hl=pt-BR"
     elif "Skyscanner" in plataforma:
         return f"https://www.skyscanner.com.br/transporte/passagens-aereas/{origem_iata.lower()}/{dest_iata.lower()}/{ida_yymmdd}/{volta_yymmdd}/?adults={adultos}&children={criancas}"
@@ -96,30 +96,30 @@ def gerar_deep_link(plataforma, tipo, origem_iata, dest_info, dt_ida, dt_volta, 
         return f"https://www.kayak.com.br/flights/{origem_iata}-{dest_iata}/{ida_iso}/{volta_iso}/{adultos}adults"
     elif "Decolar" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.decolar.com/trip/packages?origin={origem_iata}&destination={dest_iata}&from={ida_iso}&to={volta_iso}&adults={adultos}&children={criancas}"
+            return f"https://www.decolar.com/pacotes/"
         return f"https://www.decolar.com/shop/flights/results/roundtrip/{origem_iata}/{dest_iata}/{ida_iso}/{volta_iso}/{adultos}/{criancas}/0"
     elif "ViajaNet" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.viajanet.com.br/pacotes-de-viagem?origem={origem_iata}&destino={dest_iata}&ida={ida_iso}&volta={volta_iso}&adultos={adultos}&criancas={criancas}"
+            return f"https://www.viajanet.com.br/pacotes"
         return f"https://www.viajanet.com.br/busca/passagens/voos#/{origem_iata}/{dest_iata}/RT/{ida_iso}/{volta_iso}/-/-/{adultos}/{criancas}/0"
     elif "Azul" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.azulviagens.com.br/pacotes-turisticos?origem={origem_iata}&destino={dest_iata}&ida={ida_iso}&volta={volta_iso}&adultos={adultos}&criancas={criancas}"
+            return f"https://www.azulviagens.com.br/packages/"
         return f"https://www.voeazul.com.br/br/pt/home/selecao-voo?c[0].ds={origem_iata}&c[0].as={dest_iata}&c[0].std={dt_ida.strftime('%m/%d/%Y')}&c[1].ds={dest_iata}&c[1].as={origem_iata}&c[1].std={dt_volta.strftime('%m/%d/%Y')}&p[0].t=ADT&p[0].c={adultos}"
     elif "GOL" in plataforma:
         return f"https://b2c.voegol.com.br/compra/busca-parceiros?pv=br&tipo=DF&de={origem_iata}&para={dest_iata}&ida={dt_ida.strftime('%d-%m-%Y')}&volta={dt_volta.strftime('%d-%m-%Y')}&ADT={adultos}&CHD={criancas}"
     elif "LATAM" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.latamairlines.com/br/pt/latam-travel/pacotes?origin={origem_iata}&destination={dest_iata}&outbound={ida_iso}&inbound={volta_iso}&adt={adultos}&chd={criancas}"
+            return f"https://www.latamairlines.com/br/pt/pacotes-viagens"
         return f"https://www.latamairlines.com/br/pt/oferta-voos?origin={origem_iata}&destination={dest_iata}&outbound={ida_iso}T12%3A00%3A00.000Z&inbound={volta_iso}T12%3A00%3A00.000Z&adt={adultos}&chd={criancas}&trip=RT"
     elif "Booking" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.booking.com/flights/index.pt-br.html?aid=304142&from={origem_iata}&to={dest_iata}&depart={ida_iso}&return={volta_iso}&adults={adultos}&children={criancas}"
+            return f"https://www.booking.com/flights/index.pt-br.html"
         dest_q = urllib.parse.quote(dest_info["cidade"])
         return f"https://www.booking.com/searchresults.pt-br.html?ss={dest_q}&checkin={ida_iso}&checkout={volta_iso}&group_adults={adultos}&group_children={criancas}"
     elif "Expedia" in plataforma:
         if "Pacote" in tipo:
-            return f"https://www.expedia.com.br/Packages?origin={origem_iata}&destination={dest_iata}&startDate={ida_iso}&endDate={volta_iso}&adults={adultos}&children={criancas}"
+            return f"https://www.expedia.com.br/Pacotes"
         dest_q = urllib.parse.quote(dest_info["cidade"])
         return f"https://www.expedia.com.br/Hotel-Search?destination={dest_q}&startDate={ida_iso}&endDate={volta_iso}&adults={adultos}"
     elif "MaxMilhas" in plataforma:
