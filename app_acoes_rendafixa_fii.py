@@ -10,7 +10,8 @@ st.markdown(
     "Painel unificado para avaliar **Ações** (fundamentos + técnica + risco), **Fundos Imobiliários (FIIs)** "
     "e **Renda Fixa**, destacando as melhores oportunidades de cada classe, permitindo montar uma carteira "
     "combinada com sugestão de alocação por perfil (**Conservador**, **Moderado** ou **Agressivo**), "
-    "ajuste livre de percentuais, **Lucro Líquido após Impostos** e **evolução histórica de 30 a 360 dias**."
+    "ajuste livre de percentuais, **Descontos com Impostos na Venda Hoje**, **Lucro Líquido (Venda Hoje)**, "
+    "**Lucro Líquido após Impostos** e **evolução histórica de 30 a 360 dias**."
 )
 
 # ==========================================
@@ -60,6 +61,8 @@ with st.sidebar.expander("📈 Configurar Universo de AÇÕES", expanded=False):
     peso_tend = st.slider("Peso Técnica/Timing (Ações)", 0, 50, 30)
     peso_risco = st.slider("Peso Risco/Sharpe (Ações)", 0, 50, 20)
     peso_liq = st.slider("Peso Liquidez (Ações)", 0, 50, 15)
+    ir_gc_acao = st.number_input("IR Ganho de Capital na Venda de Ações (%)", 0.0, 35.0, 15.0, 1.0)
+    ir_div_acao = st.number_input("IR sobre Dividendos de Ações (%)", 0.0, 35.0, 0.0, 0.5)
     evitar_sobrecompra = st.checkbox("Bloquear compra se IFR > 72", value=True)
     exigir_tendencia_alta = st.checkbox("Priorizar Preço > MM21 ou MM50", value=True)
 
@@ -70,6 +73,7 @@ with st.sidebar.expander("🏢 Configurar Universo de FIIs", expanded=False):
     )
     fiis_input = st.text_area("Tickers de FIIs", value=fiis_padrao, height=70)
     ir_gc_fii = st.number_input("IR Ganho de Capital na Venda de FII (%)", 0.0, 35.0, 20.0, 1.0)
+    ir_div_fii = st.number_input("IR sobre Dividendos de FII (%)", 0.0, 35.0, 0.0, 0.5)
 
 with st.sidebar.expander("🏦 Configurar Opções de RENDA FIXA", expanded=False):
     rf_default = pd.DataFrame([
@@ -102,7 +106,6 @@ def calcular_pesos_sugeridos(itens, perfil_nome):
         if classe in itens_por_classe:
             itens_por_classe[classe].append((classe, nome))
 
-    # Soma apenas os percentuais das classes que têm itens selecionados
     peso_classes_ativas = sum(base_classes[c] for c, lst in itens_por_classe.items() if lst)
     if peso_classes_ativas <= 0:
         peso_classes_ativas = 100.0
@@ -119,7 +122,6 @@ def calcular_pesos_sugeridos(itens, perfil_nome):
             else:
                 sugestao[item] = round(pct_classe - pct_unit * (len(lst) - 1), 1)
 
-    # Ajuste fino para fechar exatamente em 100.0%
     if sugestao:
         diff = round(100.0 - sum(sugestao.values()), 1)
         ultimo_item = list(sugestao.keys())[-1]
@@ -190,14 +192,64 @@ def pontuar_fundamentos(fund):
         notas.append(90.0 if mg >= 15 else (70.0 if mg >= 8 else (50.0 if mg > 0 else 15.0)))
     return float(np.mean(notas)) if notas else 55.0
 
+def calcular_venda_hoje_series(close_series, divs_series, cap_ref, meses_ref, aliq_gc, aliq_div):
+    """
+    Retorna (desconto_impostos_hoje_rs, lucro_liquido_venda_hoje_rs) considerando entrada há `meses_ref` meses
+    e venda no pregão de hoje.
+    """
+    preco_hoje = float(close_series.iloc[-1])
+    data_hoje = close_series.index[-1]
+    data_alvo = data_hoje - pd.DateOffset(months=meses_ref)
+
+    pos = close_series.index.searchsorted(data_alvo)
+    if pos >= len(close_series):
+        pos = len(close_series) - 1
+    preco_entrada = float(close_series.iloc[pos])
+    data_entrada = close_series.index[pos]
+
+    if preco_entrada <= 0:
+        return 0.0, 0.0
+
+    # Ganho/perda com cotas na venda hoje e IR sobre ganho de capital
+    gc_bruto_hoje = cap_ref * ((preco_hoje / preco_entrada) - 1.0)
+    ir_gc_hoje = max(0.0, gc_bruto_hoje) * (aliq_gc / 100.0)
+    gc_liq_hoje = gc_bruto_hoje - ir_gc_hoje
+
+    # Proventos recebidos no período e IR sobre dividendos
+    ir_div_hoje = 0.0
+    div_liq_hoje = 0.0
+    if divs_series is not None and not divs_series.empty:
+        idx_d = divs_series.index
+        dt_ini_cmp = data_entrada
+        dt_fim_cmp = data_hoje
+        if idx_d.tz is not None and dt_ini_cmp.tz is None:
+            dt_ini_cmp = dt_ini_cmp.tz_localize(idx_d.tz)
+            dt_fim_cmp = dt_fim_cmp.tz_localize(idx_d.tz)
+        elif idx_d.tz is None and dt_ini_cmp.tz is not None:
+            dt_ini_cmp = dt_ini_cmp.tz_localize(None)
+            dt_fim_cmp = dt_fim_cmp.tz_localize(None)
+
+        divs_periodo = float(divs_series[(idx_d > dt_ini_cmp) & (idx_d <= dt_fim_cmp)].sum())
+        if divs_periodo > 0:
+            qtd_teorica = cap_ref / preco_entrada
+            div_bruto_hoje = qtd_teorica * divs_periodo
+            ir_div_hoje = max(0.0, div_bruto_hoje) * (aliq_div / 100.0)
+            div_liq_hoje = div_bruto_hoje - ir_div_hoje
+
+    desconto_ir_total = ir_gc_hoje + ir_div_hoje
+    lucro_liq_total = gc_liq_hoje + div_liq_hoje
+    return desconto_ir_total, lucro_liq_total
+
 # ==========================================
 # 4. MOTORES DE ANÁLISE (AÇÕES, FIIs E RENDA FIXA)
 # ==========================================
 @st.cache_data(ttl=900)
-def avaliar_acoes(tickers, w_fund, w_tend, w_risco, w_liq, block_ob, req_up, cap_ref, meses_ref):
+def avaliar_acoes(tickers, w_fund, w_tend, w_risco, w_liq, block_ob, req_up, cap_ref, meses_ref, aliq_gc_acao, aliq_div_acao):
     if not tickers:
         return pd.DataFrame(), pd.DataFrame()
-    raw = yf.download(tickers, period="2y", interval="1d", group_by="ticker", auto_adjust=True, progress=False)
+    periodo_dl = "5y" if meses_ref > 24 else "2y"
+    raw = yf.download(tickers, period=periodo_dl, interval="1d", group_by="ticker", auto_adjust=True, progress=False)
+    raw_unadj = yf.download(tickers, period=periodo_dl, interval="1d", group_by="ticker", auto_adjust=False, progress=False)
     if raw is None or raw.empty:
         return pd.DataFrame(), pd.DataFrame()
     w_sum = float(w_fund + w_tend + w_risco + w_liq)
@@ -212,6 +264,13 @@ def avaliar_acoes(tickers, w_fund, w_tend, w_risco, w_liq, block_ob, req_up, cap
             if preco <= 0:
                 continue
             precos[tk] = close
+
+            close_unadj = close
+            if raw_unadj is not None and not raw_unadj.empty:
+                df_u = raw_unadj[tk].dropna(how="all") if isinstance(raw_unadj.columns, pd.MultiIndex) else raw_unadj.dropna(how="all")
+                if "Close" in df_u.columns and not df_u["Close"].dropna().empty:
+                    close_unadj = df_u["Close"].dropna()
+
             mm21 = float(close.tail(21).mean())
             mm50 = float(close.tail(50).mean())
             mm200 = float(close.tail(200).mean()) if len(close) >= 200 else float(close.mean())
@@ -224,7 +283,8 @@ def avaliar_acoes(tickers, w_fund, w_tend, w_risco, w_liq, block_ob, req_up, cap
             dd_60 = float((preco / float(close.tail(60).max()) - 1) * 100)
             vol_fin = float((df_tk["Close"] * df_tk["Volume"]).tail(20).mean()) if "Volume" in df_tk.columns else 0.0
 
-            fund = obter_fundamentos_seguros(yf.Ticker(tk))
+            tk_obj = yf.Ticker(tk)
+            fund = obter_fundamentos_seguros(tk_obj)
             sc_fund = pontuar_fundamentos(fund)
             sc_tend = 0.0
             if preco > mm21: sc_tend += 25.0
@@ -249,10 +309,21 @@ def avaliar_acoes(tickers, w_fund, w_tend, w_risco, w_liq, block_ob, req_up, cap
             stop_ref = round(preco * (1.0 - 2.5 * vol_dia), 2)
             alvo_ref = round(preco * (1.0 + 4.5 * vol_dia), 2)
 
+            divs_a = pd.Series(dtype=float)
+            try:
+                divs_a = tk_obj.dividends
+            except Exception:
+                pass
+
             dy_est = fund["DY (%)"] if not np.isnan(fund["DY (%)"]) else 3.0
             div_rs = cap_ref * ((1.0 + dy_est / 100.0) ** (meses_ref / 12.0) - 1.0)
+            div_liq_proj = div_rs - max(0.0, div_rs) * (aliq_div_acao / 100.0)
             gc_bruto = cap_ref * ((1.0 + (ret_a / 100.0)) ** (meses_ref / 12.0) - 1.0)
-            lucro_liq_rs = div_rs + (gc_bruto - max(0.0, gc_bruto) * 0.15)
+            lucro_liq_rs = div_liq_proj + (gc_bruto - max(0.0, gc_bruto) * (aliq_gc_acao / 100.0))
+
+            desc_ir_hoje, lucro_liq_hoje = calcular_venda_hoje_series(
+                close_unadj, divs_a, cap_ref, meses_ref, aliq_gc_acao, aliq_div_acao
+            )
 
             regs.append({
                 "Ticker": tk,
@@ -261,6 +332,8 @@ def avaliar_acoes(tickers, w_fund, w_tend, w_risco, w_liq, block_ob, req_up, cap
                 "Preço (R$)": round(preco, 2),
                 "Stop Ref. (R$)": stop_ref,
                 "Alvo Ref. (R$)": alvo_ref,
+                f"Desconto Impostos Venda Hoje {meses_ref}m (R$)": round(desc_ir_hoje, 2),
+                f"Lucro Líq. Venda Hoje {meses_ref}m (R$)": round(lucro_liq_hoje, 2),
                 f"Lucro Líq. {meses_ref}m (R$)": round(lucro_liq_rs, 2),
                 "P/L": round(fund["P/L"], 1) if not np.isnan(fund["P/L"]) else None,
                 "ROE (%)": round(fund["ROE (%)"], 1) if not np.isnan(fund["ROE (%)"]) else None,
@@ -279,10 +352,12 @@ def avaliar_acoes(tickers, w_fund, w_tend, w_risco, w_liq, block_ob, req_up, cap
     return df, pd.DataFrame(precos).sort_index()
 
 @st.cache_data(ttl=900)
-def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc):
+def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc, aliq_div):
     if not tickers:
         return pd.DataFrame(), pd.DataFrame()
-    raw = yf.download(tickers, period="2y", interval="1d", group_by="ticker", auto_adjust=True, progress=False)
+    periodo_dl = "5y" if meses_ref > 24 else "2y"
+    raw = yf.download(tickers, period=periodo_dl, interval="1d", group_by="ticker", auto_adjust=True, progress=False)
+    raw_unadj = yf.download(tickers, period=periodo_dl, interval="1d", group_by="ticker", auto_adjust=False, progress=False)
     if raw is None or raw.empty:
         return pd.DataFrame(), pd.DataFrame()
     regs, precos = [], {}
@@ -296,6 +371,13 @@ def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc):
             if preco <= 0:
                 continue
             precos[tk] = close
+
+            close_unadj = close
+            if raw_unadj is not None and not raw_unadj.empty:
+                df_u = raw_unadj[tk].dropna(how="all") if isinstance(raw_unadj.columns, pd.MultiIndex) else raw_unadj.dropna(how="all")
+                if "Close" in df_u.columns and not df_u["Close"].dropna().empty:
+                    close_unadj = df_u["Close"].dropna()
+
             mm21 = float(close.tail(21).mean())
             mm50 = float(close.tail(50).mean())
             ret_d = close.pct_change().dropna()
@@ -303,6 +385,7 @@ def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc):
             dd_180 = float((preco / float(close.tail(180).max()) - 1) * 100)
 
             dy_12m = np.nan
+            divs = pd.Series(dtype=float)
             try:
                 divs = yf.Ticker(tk).dividends
                 if divs is not None and not divs.empty:
@@ -313,10 +396,15 @@ def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc):
                 pass
 
             dy_ef = dy_12m if not np.isnan(dy_12m) else 8.0
-            rend_isento = cap_ref * ((1.0 + dy_ef / 100.0) ** (meses_ref / 12.0) - 1.0)
+            rend_bruto = cap_ref * ((1.0 + dy_ef / 100.0) ** (meses_ref / 12.0) - 1.0)
+            rend_liq = rend_bruto - max(0.0, rend_bruto) * (aliq_div / 100.0)
             ret_a_hist = float(np.clip(ret_d.tail(126).mean() * 252, -0.10, 0.18)) if len(ret_d) >= 40 else 0.04
             gc_bruto = cap_ref * ((1.0 + ret_a_hist) ** (meses_ref / 12.0) - 1.0)
-            lucro_liq_fii = rend_isento + (gc_bruto - max(0.0, gc_bruto) * (aliq_gc / 100.0))
+            lucro_liq_fii = rend_liq + (gc_bruto - max(0.0, gc_bruto) * (aliq_gc / 100.0))
+
+            desc_ir_hoje, lucro_liq_hoje = calcular_venda_hoje_series(
+                close_unadj, divs, cap_ref, meses_ref, aliq_gc, aliq_div
+            )
 
             sc_renda = float(np.clip(((dy_12m - 4.0) / 10.0) * 100.0, 0.0, 100.0)) if not np.isnan(dy_12m) else 60.0
             sc_estab = float(np.clip(100.0 - max(0.0, (vol_a - 12.0) * 2.5) - abs(min(0.0, dd_180)) * 1.2, 0.0, 100.0))
@@ -328,6 +416,8 @@ def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc):
                 "Score": round(sc_final, 1),
                 "Preço (R$)": round(preco, 2),
                 "DY 12m Est. (%)": round(dy_12m, 2) if not np.isnan(dy_12m) else None,
+                f"Desconto Impostos Venda Hoje {meses_ref}m (R$)": round(desc_ir_hoje, 2),
+                f"Lucro Líq. Venda Hoje {meses_ref}m (R$)": round(lucro_liq_hoje, 2),
                 f"Lucro Líq. {meses_ref}m (R$)": round(lucro_liq_fii, 2),
                 "Vol. Anual (%)": round(vol_a, 1),
                 "Drawdown 180d (%)": round(dd_180, 1),
@@ -359,6 +449,13 @@ def avaliar_renda_fixa(df_rf, selic_ref, ipca_ref, cap_ref, meses_ref):
             aliq = 0.0 if isento else aliquota_ir_regressiva(dias_ef)
             lucro_bruto = cap_ref * ((1.0 + taxa_b / 100.0) ** (meses_ref / 12.0) - 1.0)
             lucro_liq = lucro_bruto - max(0.0, lucro_bruto) * aliq
+
+            # Resgate / venda hoje: aplica IR regressivo pelo prazo decorrido de meses_ref
+            dias_hoje = max(1, int(round(meses_ref * 30.4375)))
+            aliq_hoje = 0.0 if isento else aliquota_ir_regressiva(dias_hoje)
+            desc_ir_hoje = max(0.0, lucro_bruto) * aliq_hoje
+            lucro_liq_hoje = lucro_bruto - desc_ir_hoje
+
             taxa_liq_ef = ((1.0 + lucro_liq / cap_ref) ** (12.0 / max(meses_ref, 1)) - 1.0) * 100.0 if cap_ref > 0 else 0.0
             ganho_real = ((1.0 + taxa_liq_ef / 100.0) / (1.0 + ipca_ref / 100.0) - 1.0) * 100.0
 
@@ -372,6 +469,8 @@ def avaliar_renda_fixa(df_rf, selic_ref, ipca_ref, cap_ref, meses_ref):
                 "Score": round(sc_final, 1),
                 "Taxa Bruta (% a.a.)": round(taxa_b, 2),
                 "IR Est. (%)": round(aliq * 100.0, 1),
+                f"Desconto Impostos Venda Hoje {meses_ref}m (R$)": round(desc_ir_hoje, 2),
+                f"Lucro Líq. Venda Hoje {meses_ref}m (R$)": round(lucro_liq_hoje, 2),
                 f"Lucro Líq. {meses_ref}m (R$)": round(lucro_liq, 2),
                 "Taxa Líq. (% a.a.)": round(taxa_liq_ef, 2),
                 "Ganho Real (% a.a.)": round(ganho_real, 2),
@@ -391,12 +490,15 @@ def avaliar_renda_fixa(df_rf, selic_ref, ipca_ref, cap_ref, meses_ref):
 with st.spinner("Analisando Ações, FIIs e Renda Fixa simultaneamente..."):
     df_acoes, precos_acoes = avaliar_acoes(
         tuple(lista_acoes), peso_fund, peso_tend, peso_risco, peso_liq,
-        evitar_sobrecompra, exigir_tendencia_alta, capital_total, horizonte_meses
+        evitar_sobrecompra, exigir_tendencia_alta, capital_total, horizonte_meses,
+        ir_gc_acao, ir_div_acao
     )
-    df_fiis, precos_fiis = avaliar_fiis(tuple(lista_fiis), capital_total, horizonte_meses, ir_gc_fii)
+    df_fiis, precos_fiis = avaliar_fiis(tuple(lista_fiis), capital_total, horizonte_meses, ir_gc_fii, ir_div_fii)
     df_rf = avaliar_renda_fixa(df_rf_input, taxa_selic_cdi, ipca_projetado, capital_total, horizonte_meses)
 
 col_lucro = f"Lucro Líq. {horizonte_meses}m (R$)"
+col_desc_ir_hoje = f"Desconto Impostos Venda Hoje {horizonte_meses}m (R$)"
+col_venda_hoje = f"Lucro Líq. Venda Hoje {horizonte_meses}m (R$)"
 
 # ==========================================
 # 6. ABAS ORGANIZADAS EM UM ÚNICO APP
@@ -418,15 +520,27 @@ with aba_resumo:
     with c1:
         st.markdown("**📈 Top 5 Ações**")
         if not df_acoes_vis.empty:
-            st.dataframe(df_acoes_vis[["Rank", "Ticker", "Score", "Indicação", "Preço (R$)", col_lucro]].head(5), use_container_width=True, hide_index=True)
+            st.dataframe(
+                df_acoes_vis[["Rank", "Ticker", "Score", "Preço (R$)", col_desc_ir_hoje, col_venda_hoje, col_lucro]].head(5),
+                use_container_width=True,
+                hide_index=True
+            )
     with c2:
         st.markdown("**🏢 Top 2 FIIs**")
         if not df_fiis.empty:
-            st.dataframe(df_fiis[["Rank", "Ticker", "Score", "Preço (R$)", "DY 12m Est. (%)", col_lucro]].head(2), use_container_width=True, hide_index=True)
+            st.dataframe(
+                df_fiis[["Rank", "Ticker", "Score", "Preço (R$)", col_desc_ir_hoje, col_venda_hoje, col_lucro]].head(2),
+                use_container_width=True,
+                hide_index=True
+            )
     with c3:
         st.markdown("**🏦 Top 2 Renda Fixa**")
         if not df_rf.empty:
-            st.dataframe(df_rf[["Rank", "Produto", "Score", "Taxa Líq. (% a.a.)", col_lucro]].head(2), use_container_width=True, hide_index=True)
+            st.dataframe(
+                df_rf[["Rank", "Produto", "Score", "Taxa Líq. (% a.a.)", col_desc_ir_hoje, col_venda_hoje, col_lucro]].head(2),
+                use_container_width=True,
+                hide_index=True
+            )
 
     st.divider()
     st.subheader("💼 Seleção de Ativos para a Carteira")
@@ -478,37 +592,48 @@ with aba_resumo:
                 pr = float(r["Preço (R$)"])
                 qtd = int(val_aloc // pr) if pr > 0 else 0
                 custo_ef = qtd * pr
-                lucro_ef = round(float(r[col_lucro]) * (custo_ef / max(capital_total, 1.0)), 2)
+                fator = custo_ef / max(capital_total, 1.0)
+                desc_ir_ef = round(float(r[col_desc_ir_hoje]) * fator, 2)
+                venda_hoje_ef = round(float(r[col_venda_hoje]) * fator, 2)
+                lucro_ef = round(float(r[col_lucro]) * fator, 2)
                 linhas_unif.append({
                     "Classe": "Ação", "Ativo": nome, "Score": r["Score"], "Peso (%)": p,
                     "Alocado (R$)": val_aloc, "Detalhe / Qtd.": f"{qtd} ações | Stop R$ {r['Stop Ref. (R$)']}",
-                    col_lucro: lucro_ef
+                    col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
                 })
             elif classe == "FII":
                 r = df_fiis[df_fiis["Ticker"] == nome].iloc[0]
                 pr = float(r["Preço (R$)"])
                 qtd = int(val_aloc // pr) if pr > 0 else 0
                 custo_ef = qtd * pr
-                lucro_ef = round(float(r[col_lucro]) * (custo_ef / max(capital_total, 1.0)), 2)
+                fator = custo_ef / max(capital_total, 1.0)
+                desc_ir_ef = round(float(r[col_desc_ir_hoje]) * fator, 2)
+                venda_hoje_ef = round(float(r[col_venda_hoje]) * fator, 2)
+                lucro_ef = round(float(r[col_lucro]) * fator, 2)
                 linhas_unif.append({
                     "Classe": "FII", "Ativo": nome, "Score": r["Score"], "Peso (%)": p,
                     "Alocado (R$)": val_aloc, "Detalhe / Qtd.": f"{qtd} cotas (~R$ {pr:.2f})",
-                    col_lucro: lucro_ef
+                    col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
                 })
             else:
                 r = df_rf[df_rf["Produto"] == nome].iloc[0]
-                lucro_ef = round(float(r[col_lucro]) * (val_aloc / max(capital_total, 1.0)), 2)
+                fator_rf = val_aloc / max(capital_total, 1.0)
+                desc_ir_ef = round(float(r[col_desc_ir_hoje]) * fator_rf, 2)
+                venda_hoje_ef = round(float(r[col_venda_hoje]) * fator_rf, 2)
+                lucro_ef = round(float(r[col_lucro]) * fator_rf, 2)
                 linhas_unif.append({
                     "Classe": "Renda Fixa", "Ativo": nome, "Score": r["Score"], "Peso (%)": p,
                     "Alocado (R$)": val_aloc, "Detalhe / Qtd.": f"Taxa líq. {r['Taxa Líq. (% a.a.)']}% | IR {r['IR Est. (%)']}%",
-                    col_lucro: lucro_ef
+                    col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
                 })
 
         df_unif = pd.DataFrame(linhas_unif)
         st.dataframe(df_unif, use_container_width=True, hide_index=True)
-        m1, m2 = st.columns(2)
+        m1, m2, m3, m4 = st.columns(4)
         m1.metric("Capital Total Simulado", f"R$ {capital_total:,.2f}")
-        m2.metric(f"Lucro Líquido Total Estimado após Impostos ({horizonte_meses}m)", f"R$ {df_unif[col_lucro].sum():,.2f}")
+        m2.metric("Descontos Impostos (Venda Hoje)", f"R$ {df_unif[col_desc_ir_hoje].sum():,.2f}")
+        m3.metric("Lucro Líquido após Impostos (Venda Hoje)", f"R$ {df_unif[col_venda_hoje].sum():,.2f}")
+        m4.metric(f"Lucro Líquido Total Estimado ({horizonte_meses}m)", f"R$ {df_unif[col_lucro].sum():,.2f}")
 
 with aba_pers:
     st.subheader("🎚️ Percentuais Personalizados com Sugestão por Perfil")
@@ -572,35 +697,50 @@ with aba_pers:
                 pr = float(r["Preço (R$)"])
                 qtd = int(val_aloc // pr) if pr > 0 else 0
                 custo_ef = qtd * pr
-                lucro_ef = round(float(r[col_lucro]) * (custo_ef / max(capital_total, 1.0)), 2)
+                fator = custo_ef / max(capital_total, 1.0)
+                desc_ir_ef = round(float(r[col_desc_ir_hoje]) * fator, 2)
+                venda_hoje_ef = round(float(r[col_venda_hoje]) * fator, 2)
+                lucro_ef = round(float(r[col_lucro]) * fator, 2)
                 linhas_pers.append({
                     "Classe": "Ação", "Ativo": nome, "Sugestão Perfil (%)": sugestao_ativos.get((classe, nome), 0.0),
                     "Seu Percentual (%)": p_item, "Valor Alocado (R$)": val_aloc,
-                    "Qtd. Est.": f"{qtd} ações", col_lucro: lucro_ef
+                    "Qtd. Est.": f"{qtd} ações",
+                    col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
                 })
             elif classe == "FII":
                 r = df_fiis[df_fiis["Ticker"] == nome].iloc[0]
                 pr = float(r["Preço (R$)"])
                 qtd = int(val_aloc // pr) if pr > 0 else 0
                 custo_ef = qtd * pr
-                lucro_ef = round(float(r[col_lucro]) * (custo_ef / max(capital_total, 1.0)), 2)
+                fator = custo_ef / max(capital_total, 1.0)
+                desc_ir_ef = round(float(r[col_desc_ir_hoje]) * fator, 2)
+                venda_hoje_ef = round(float(r[col_venda_hoje]) * fator, 2)
+                lucro_ef = round(float(r[col_lucro]) * fator, 2)
                 linhas_pers.append({
                     "Classe": "FII", "Ativo": nome, "Sugestão Perfil (%)": sugestao_ativos.get((classe, nome), 0.0),
                     "Seu Percentual (%)": p_item, "Valor Alocado (R$)": val_aloc,
-                    "Qtd. Est.": f"{qtd} cotas", col_lucro: lucro_ef
+                    "Qtd. Est.": f"{qtd} cotas",
+                    col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
                 })
             else:
                 r = df_rf[df_rf["Produto"] == nome].iloc[0]
-                lucro_ef = round(float(r[col_lucro]) * (val_aloc / max(capital_total, 1.0)), 2)
+                fator_rf = val_aloc / max(capital_total, 1.0)
+                desc_ir_ef = round(float(r[col_desc_ir_hoje]) * fator_rf, 2)
+                venda_hoje_ef = round(float(r[col_venda_hoje]) * fator_rf, 2)
+                lucro_ef = round(float(r[col_lucro]) * fator_rf, 2)
                 linhas_pers.append({
                     "Classe": "Renda Fixa", "Ativo": nome, "Sugestão Perfil (%)": sugestao_ativos.get((classe, nome), 0.0),
                     "Seu Percentual (%)": p_item, "Valor Alocado (R$)": val_aloc,
-                    "Qtd. Est.": f"Taxa líq. {r['Taxa Líq. (% a.a.)']}%", col_lucro: lucro_ef
+                    "Qtd. Est.": f"Taxa líq. {r['Taxa Líq. (% a.a.)']}%",
+                    col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
                 })
 
         df_pers_tab = pd.DataFrame(linhas_pers)
         st.dataframe(df_pers_tab, use_container_width=True, hide_index=True)
-        st.metric(f"Lucro Líquido Estimado com Esses Percentuais ({horizonte_meses}m)", f"R$ {df_pers_tab[col_lucro].sum():,.2f}")
+        mp1, mp2, mp3 = st.columns(3)
+        mp1.metric("Descontos Impostos (Venda Hoje)", f"R$ {df_pers_tab[col_desc_ir_hoje].sum():,.2f}")
+        mp2.metric("Lucro Líquido após Impostos (Venda Hoje)", f"R$ {df_pers_tab[col_venda_hoje].sum():,.2f}")
+        mp3.metric(f"Lucro Líquido Estimado ({horizonte_meses}m)", f"R$ {df_pers_tab[col_lucro].sum():,.2f}")
 
 with aba_acoes:
     st.subheader("📈 Análise Completa das Ações")
