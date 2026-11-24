@@ -10,7 +10,7 @@ st.markdown(
     "Painel unificado para avaliar **Ações** (fundamentos + técnica + risco), **Fundos Imobiliários (FIIs)** "
     "e **Renda Fixa**, destacando as melhores oportunidades de cada classe, permitindo montar uma carteira "
     "combinada com sugestão de alocação por perfil (**Conservador**, **Moderado** ou **Agressivo**), "
-    "ajuste livre de percentuais, **Descontos com Impostos na Venda Hoje**, **Lucro Líquido (Venda Hoje)**, "
+    "ajuste livre de percentuais, **Lucro Bruto**, **Descontos com Impostos na Venda Hoje**, **Lucro Líquido (Venda Hoje)**, "
     "**Lucro Líquido após Impostos** e **evolução histórica de 30 a 360 dias**."
 )
 
@@ -194,8 +194,8 @@ def pontuar_fundamentos(fund):
 
 def calcular_venda_hoje_series(close_series, divs_series, cap_ref, meses_ref, aliq_gc, aliq_div):
     """
-    Retorna (desconto_impostos_hoje_rs, lucro_liquido_venda_hoje_rs) considerando entrada há `meses_ref` meses
-    e venda no pregão de hoje.
+    Retorna (lucro_bruto_venda_hoje_rs, desconto_impostos_hoje_rs, lucro_liquido_venda_hoje_rs)
+    considerando entrada há `meses_ref` meses e venda no pregão de hoje.
     """
     preco_hoje = float(close_series.iloc[-1])
     data_hoje = close_series.index[-1]
@@ -208,7 +208,7 @@ def calcular_venda_hoje_series(close_series, divs_series, cap_ref, meses_ref, al
     data_entrada = close_series.index[pos]
 
     if preco_entrada <= 0:
-        return 0.0, 0.0
+        return 0.0, 0.0, 0.0
 
     # Ganho/perda com cotas na venda hoje e IR sobre ganho de capital
     gc_bruto_hoje = cap_ref * ((preco_hoje / preco_entrada) - 1.0)
@@ -216,6 +216,7 @@ def calcular_venda_hoje_series(close_series, divs_series, cap_ref, meses_ref, al
     gc_liq_hoje = gc_bruto_hoje - ir_gc_hoje
 
     # Proventos recebidos no período e IR sobre dividendos
+    div_bruto_hoje = 0.0
     ir_div_hoje = 0.0
     div_liq_hoje = 0.0
     if divs_series is not None and not divs_series.empty:
@@ -236,9 +237,10 @@ def calcular_venda_hoje_series(close_series, divs_series, cap_ref, meses_ref, al
             ir_div_hoje = max(0.0, div_bruto_hoje) * (aliq_div / 100.0)
             div_liq_hoje = div_bruto_hoje - ir_div_hoje
 
+    lucro_bruto_total = gc_bruto_hoje + div_bruto_hoje
     desconto_ir_total = ir_gc_hoje + ir_div_hoje
     lucro_liq_total = gc_liq_hoje + div_liq_hoje
-    return desconto_ir_total, lucro_liq_total
+    return lucro_bruto_total, desconto_ir_total, lucro_liq_total
 
 # ==========================================
 # 4. MOTORES DE ANÁLISE (AÇÕES, FIIs E RENDA FIXA)
@@ -319,9 +321,10 @@ def avaliar_acoes(tickers, w_fund, w_tend, w_risco, w_liq, block_ob, req_up, cap
             div_rs = cap_ref * ((1.0 + dy_est / 100.0) ** (meses_ref / 12.0) - 1.0)
             div_liq_proj = div_rs - max(0.0, div_rs) * (aliq_div_acao / 100.0)
             gc_bruto = cap_ref * ((1.0 + (ret_a / 100.0)) ** (meses_ref / 12.0) - 1.0)
+            lucro_bruto_proj = div_rs + gc_bruto
             lucro_liq_rs = div_liq_proj + (gc_bruto - max(0.0, gc_bruto) * (aliq_gc_acao / 100.0))
 
-            desc_ir_hoje, lucro_liq_hoje = calcular_venda_hoje_series(
+            _, desc_ir_hoje, lucro_liq_hoje = calcular_venda_hoje_series(
                 close_unadj, divs_a, cap_ref, meses_ref, aliq_gc_acao, aliq_div_acao
             )
 
@@ -332,6 +335,7 @@ def avaliar_acoes(tickers, w_fund, w_tend, w_risco, w_liq, block_ob, req_up, cap
                 "Preço (R$)": round(preco, 2),
                 "Stop Ref. (R$)": stop_ref,
                 "Alvo Ref. (R$)": alvo_ref,
+                f"Lucro Bruto {meses_ref}m (R$)": round(lucro_bruto_proj, 2),
                 f"Desconto Impostos Venda Hoje {meses_ref}m (R$)": round(desc_ir_hoje, 2),
                 f"Lucro Líq. Venda Hoje {meses_ref}m (R$)": round(lucro_liq_hoje, 2),
                 f"Lucro Líq. {meses_ref}m (R$)": round(lucro_liq_rs, 2),
@@ -400,9 +404,10 @@ def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc, aliq_div):
             rend_liq = rend_bruto - max(0.0, rend_bruto) * (aliq_div / 100.0)
             ret_a_hist = float(np.clip(ret_d.tail(126).mean() * 252, -0.10, 0.18)) if len(ret_d) >= 40 else 0.04
             gc_bruto = cap_ref * ((1.0 + ret_a_hist) ** (meses_ref / 12.0) - 1.0)
+            lucro_bruto_fii = rend_bruto + gc_bruto
             lucro_liq_fii = rend_liq + (gc_bruto - max(0.0, gc_bruto) * (aliq_gc / 100.0))
 
-            desc_ir_hoje, lucro_liq_hoje = calcular_venda_hoje_series(
+            _, desc_ir_hoje, lucro_liq_hoje = calcular_venda_hoje_series(
                 close_unadj, divs, cap_ref, meses_ref, aliq_gc, aliq_div
             )
 
@@ -416,6 +421,7 @@ def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc, aliq_div):
                 "Score": round(sc_final, 1),
                 "Preço (R$)": round(preco, 2),
                 "DY 12m Est. (%)": round(dy_12m, 2) if not np.isnan(dy_12m) else None,
+                f"Lucro Bruto {meses_ref}m (R$)": round(lucro_bruto_fii, 2),
                 f"Desconto Impostos Venda Hoje {meses_ref}m (R$)": round(desc_ir_hoje, 2),
                 f"Lucro Líq. Venda Hoje {meses_ref}m (R$)": round(lucro_liq_hoje, 2),
                 f"Lucro Líq. {meses_ref}m (R$)": round(lucro_liq_fii, 2),
@@ -469,6 +475,7 @@ def avaliar_renda_fixa(df_rf, selic_ref, ipca_ref, cap_ref, meses_ref):
                 "Score": round(sc_final, 1),
                 "Taxa Bruta (% a.a.)": round(taxa_b, 2),
                 "IR Est. (%)": round(aliq * 100.0, 1),
+                f"Lucro Bruto {meses_ref}m (R$)": round(lucro_bruto, 2),
                 f"Desconto Impostos Venda Hoje {meses_ref}m (R$)": round(desc_ir_hoje, 2),
                 f"Lucro Líq. Venda Hoje {meses_ref}m (R$)": round(lucro_liq_hoje, 2),
                 f"Lucro Líq. {meses_ref}m (R$)": round(lucro_liq, 2),
@@ -496,6 +503,7 @@ with st.spinner("Analisando Ações, FIIs e Renda Fixa simultaneamente..."):
     df_fiis, precos_fiis = avaliar_fiis(tuple(lista_fiis), capital_total, horizonte_meses, ir_gc_fii, ir_div_fii)
     df_rf = avaliar_renda_fixa(df_rf_input, taxa_selic_cdi, ipca_projetado, capital_total, horizonte_meses)
 
+col_lucro_bruto = f"Lucro Bruto {horizonte_meses}m (R$)"
 col_lucro = f"Lucro Líq. {horizonte_meses}m (R$)"
 col_desc_ir_hoje = f"Desconto Impostos Venda Hoje {horizonte_meses}m (R$)"
 col_venda_hoje = f"Lucro Líq. Venda Hoje {horizonte_meses}m (R$)"
@@ -521,7 +529,7 @@ with aba_resumo:
         st.markdown("**📈 Top 5 Ações**")
         if not df_acoes_vis.empty:
             st.dataframe(
-                df_acoes_vis[["Rank", "Ticker", "Score", "Preço (R$)", col_desc_ir_hoje, col_venda_hoje, col_lucro]].head(5),
+                df_acoes_vis[["Rank", "Ticker", "Score", "Preço (R$)", col_lucro_bruto, col_desc_ir_hoje, col_venda_hoje, col_lucro]].head(5),
                 use_container_width=True,
                 hide_index=True
             )
@@ -529,7 +537,7 @@ with aba_resumo:
         st.markdown("**🏢 Top 2 FIIs**")
         if not df_fiis.empty:
             st.dataframe(
-                df_fiis[["Rank", "Ticker", "Score", "Preço (R$)", col_desc_ir_hoje, col_venda_hoje, col_lucro]].head(2),
+                df_fiis[["Rank", "Ticker", "Score", "Preço (R$)", col_lucro_bruto, col_desc_ir_hoje, col_venda_hoje, col_lucro]].head(2),
                 use_container_width=True,
                 hide_index=True
             )
@@ -537,7 +545,7 @@ with aba_resumo:
         st.markdown("**🏦 Top 2 Renda Fixa**")
         if not df_rf.empty:
             st.dataframe(
-                df_rf[["Rank", "Produto", "Score", "Taxa Líq. (% a.a.)", col_desc_ir_hoje, col_venda_hoje, col_lucro]].head(2),
+                df_rf[["Rank", "Produto", "Score", "Taxa Líq. (% a.a.)", col_lucro_bruto, col_desc_ir_hoje, col_venda_hoje, col_lucro]].head(2),
                 use_container_width=True,
                 hide_index=True
             )
@@ -593,13 +601,14 @@ with aba_resumo:
                 qtd = int(val_aloc // pr) if pr > 0 else 0
                 custo_ef = qtd * pr
                 fator = custo_ef / max(capital_total, 1.0)
+                bruto_ef = round(float(r[col_lucro_bruto]) * fator, 2)
                 desc_ir_ef = round(float(r[col_desc_ir_hoje]) * fator, 2)
                 venda_hoje_ef = round(float(r[col_venda_hoje]) * fator, 2)
                 lucro_ef = round(float(r[col_lucro]) * fator, 2)
                 linhas_unif.append({
                     "Classe": "Ação", "Ativo": nome, "Score": r["Score"], "Peso (%)": p,
                     "Alocado (R$)": val_aloc, "Detalhe / Qtd.": f"{qtd} ações | Stop R$ {r['Stop Ref. (R$)']}",
-                    col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
+                    col_lucro_bruto: bruto_ef, col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
                 })
             elif classe == "FII":
                 r = df_fiis[df_fiis["Ticker"] == nome].iloc[0]
@@ -607,33 +616,36 @@ with aba_resumo:
                 qtd = int(val_aloc // pr) if pr > 0 else 0
                 custo_ef = qtd * pr
                 fator = custo_ef / max(capital_total, 1.0)
+                bruto_ef = round(float(r[col_lucro_bruto]) * fator, 2)
                 desc_ir_ef = round(float(r[col_desc_ir_hoje]) * fator, 2)
                 venda_hoje_ef = round(float(r[col_venda_hoje]) * fator, 2)
                 lucro_ef = round(float(r[col_lucro]) * fator, 2)
                 linhas_unif.append({
                     "Classe": "FII", "Ativo": nome, "Score": r["Score"], "Peso (%)": p,
                     "Alocado (R$)": val_aloc, "Detalhe / Qtd.": f"{qtd} cotas (~R$ {pr:.2f})",
-                    col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
+                    col_lucro_bruto: bruto_ef, col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
                 })
             else:
                 r = df_rf[df_rf["Produto"] == nome].iloc[0]
                 fator_rf = val_aloc / max(capital_total, 1.0)
+                bruto_ef = round(float(r[col_lucro_bruto]) * fator_rf, 2)
                 desc_ir_ef = round(float(r[col_desc_ir_hoje]) * fator_rf, 2)
                 venda_hoje_ef = round(float(r[col_venda_hoje]) * fator_rf, 2)
                 lucro_ef = round(float(r[col_lucro]) * fator_rf, 2)
                 linhas_unif.append({
                     "Classe": "Renda Fixa", "Ativo": nome, "Score": r["Score"], "Peso (%)": p,
                     "Alocado (R$)": val_aloc, "Detalhe / Qtd.": f"Taxa líq. {r['Taxa Líq. (% a.a.)']}% | IR {r['IR Est. (%)']}%",
-                    col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
+                    col_lucro_bruto: bruto_ef, col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
                 })
 
         df_unif = pd.DataFrame(linhas_unif)
         st.dataframe(df_unif, use_container_width=True, hide_index=True)
-        m1, m2, m3, m4 = st.columns(4)
+        m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("Capital Total Simulado", f"R$ {capital_total:,.2f}")
-        m2.metric("Descontos Impostos (Venda Hoje)", f"R$ {df_unif[col_desc_ir_hoje].sum():,.2f}")
-        m3.metric("Lucro Líquido após Impostos (Venda Hoje)", f"R$ {df_unif[col_venda_hoje].sum():,.2f}")
-        m4.metric(f"Lucro Líquido Total Estimado ({horizonte_meses}m)", f"R$ {df_unif[col_lucro].sum():,.2f}")
+        m2.metric(f"Lucro Bruto Estimado ({horizonte_meses}m)", f"R$ {df_unif[col_lucro_bruto].sum():,.2f}")
+        m3.metric("Descontos Impostos (Venda Hoje)", f"R$ {df_unif[col_desc_ir_hoje].sum():,.2f}")
+        m4.metric("Lucro Líquido após Impostos (Venda Hoje)", f"R$ {df_unif[col_venda_hoje].sum():,.2f}")
+        m5.metric(f"Lucro Líquido Total Estimado ({horizonte_meses}m)", f"R$ {df_unif[col_lucro].sum():,.2f}")
 
 with aba_pers:
     st.subheader("🎚️ Percentuais Personalizados com Sugestão por Perfil")
@@ -698,6 +710,7 @@ with aba_pers:
                 qtd = int(val_aloc // pr) if pr > 0 else 0
                 custo_ef = qtd * pr
                 fator = custo_ef / max(capital_total, 1.0)
+                bruto_ef = round(float(r[col_lucro_bruto]) * fator, 2)
                 desc_ir_ef = round(float(r[col_desc_ir_hoje]) * fator, 2)
                 venda_hoje_ef = round(float(r[col_venda_hoje]) * fator, 2)
                 lucro_ef = round(float(r[col_lucro]) * fator, 2)
@@ -705,7 +718,7 @@ with aba_pers:
                     "Classe": "Ação", "Ativo": nome, "Sugestão Perfil (%)": sugestao_ativos.get((classe, nome), 0.0),
                     "Seu Percentual (%)": p_item, "Valor Alocado (R$)": val_aloc,
                     "Qtd. Est.": f"{qtd} ações",
-                    col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
+                    col_lucro_bruto: bruto_ef, col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
                 })
             elif classe == "FII":
                 r = df_fiis[df_fiis["Ticker"] == nome].iloc[0]
@@ -713,6 +726,7 @@ with aba_pers:
                 qtd = int(val_aloc // pr) if pr > 0 else 0
                 custo_ef = qtd * pr
                 fator = custo_ef / max(capital_total, 1.0)
+                bruto_ef = round(float(r[col_lucro_bruto]) * fator, 2)
                 desc_ir_ef = round(float(r[col_desc_ir_hoje]) * fator, 2)
                 venda_hoje_ef = round(float(r[col_venda_hoje]) * fator, 2)
                 lucro_ef = round(float(r[col_lucro]) * fator, 2)
@@ -720,11 +734,12 @@ with aba_pers:
                     "Classe": "FII", "Ativo": nome, "Sugestão Perfil (%)": sugestao_ativos.get((classe, nome), 0.0),
                     "Seu Percentual (%)": p_item, "Valor Alocado (R$)": val_aloc,
                     "Qtd. Est.": f"{qtd} cotas",
-                    col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
+                    col_lucro_bruto: bruto_ef, col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
                 })
             else:
                 r = df_rf[df_rf["Produto"] == nome].iloc[0]
                 fator_rf = val_aloc / max(capital_total, 1.0)
+                bruto_ef = round(float(r[col_lucro_bruto]) * fator_rf, 2)
                 desc_ir_ef = round(float(r[col_desc_ir_hoje]) * fator_rf, 2)
                 venda_hoje_ef = round(float(r[col_venda_hoje]) * fator_rf, 2)
                 lucro_ef = round(float(r[col_lucro]) * fator_rf, 2)
@@ -732,15 +747,16 @@ with aba_pers:
                     "Classe": "Renda Fixa", "Ativo": nome, "Sugestão Perfil (%)": sugestao_ativos.get((classe, nome), 0.0),
                     "Seu Percentual (%)": p_item, "Valor Alocado (R$)": val_aloc,
                     "Qtd. Est.": f"Taxa líq. {r['Taxa Líq. (% a.a.)']}%",
-                    col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
+                    col_lucro_bruto: bruto_ef, col_desc_ir_hoje: desc_ir_ef, col_venda_hoje: venda_hoje_ef, col_lucro: lucro_ef
                 })
 
         df_pers_tab = pd.DataFrame(linhas_pers)
         st.dataframe(df_pers_tab, use_container_width=True, hide_index=True)
-        mp1, mp2, mp3 = st.columns(3)
-        mp1.metric("Descontos Impostos (Venda Hoje)", f"R$ {df_pers_tab[col_desc_ir_hoje].sum():,.2f}")
-        mp2.metric("Lucro Líquido após Impostos (Venda Hoje)", f"R$ {df_pers_tab[col_venda_hoje].sum():,.2f}")
-        mp3.metric(f"Lucro Líquido Estimado ({horizonte_meses}m)", f"R$ {df_pers_tab[col_lucro].sum():,.2f}")
+        mp1, mp2, mp3, mp4 = st.columns(4)
+        mp1.metric(f"Lucro Bruto Estimado ({horizonte_meses}m)", f"R$ {df_pers_tab[col_lucro_bruto].sum():,.2f}")
+        mp2.metric("Descontos Impostos (Venda Hoje)", f"R$ {df_pers_tab[col_desc_ir_hoje].sum():,.2f}")
+        mp3.metric("Lucro Líquido após Impostos (Venda Hoje)", f"R$ {df_pers_tab[col_venda_hoje].sum():,.2f}")
+        mp4.metric(f"Lucro Líquido Estimado ({horizonte_meses}m)", f"R$ {df_pers_tab[col_lucro].sum():,.2f}")
 
 with aba_acoes:
     st.subheader("📈 Análise Completa das Ações")
