@@ -41,7 +41,15 @@ if fonte_dados == "Colar ou Enviar CSV manualmente":
         placeholder="Ex:\n3250: 01 02 04 05 07 09 10 12 14 15 18 20 21 23 25\n3251: 02 03 05 06 08 10 11 13 15 16 19 20 22 24 25"
     )
 
-iniciar = st.sidebar.button("🚀 Iniciar Análise Walk-Forward", type="primary", use_container_width=True)
+col_btn1, col_btn2 = st.sidebar.columns([2, 1])
+with col_btn1:
+    iniciar = st.button("🚀 Iniciar Análise", type="primary", use_container_width=True)
+with col_btn2:
+    limpar_cache = st.button("🔄 Atualizar", help="Limpa o cache e busca os sorteios mais recentes na API", use_container_width=True)
+
+if limpar_cache:
+    st.cache_data.clear()
+    iniciar = True
 
 # ==========================================
 # 2. COLETA E PARSER DOS CONCURSOS
@@ -76,7 +84,6 @@ def parse_linhas_manuais(txt, uploaded_file):
 @st.cache_data(ttl=1800)
 def buscar_concursos_api(qtd_desejada):
     headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
-    # Tentativa 1: API Pública Espelho Lotofácil (Loterias Caixa JSON)
     urls_lote = [
         "https://loteriascaixa-api.herokuapp.com/api/lotofacil",
         "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
@@ -96,6 +103,17 @@ def buscar_concursos_api(qtd_desejada):
                         if conc > 0 and len(dezs) == 15:
                             regs.append({"Concurso": conc, "Data": dt, "Dezenas": dezs})
                     if len(regs) >= 5:
+                        try:
+                            rl = requests.get(f"{url}/latest", headers=headers, timeout=6, verify=False)
+                            if rl.status_code == 200:
+                                it_l = rl.json()
+                                c_l = int(it_l.get("concurso") or it_l.get("numero") or 0)
+                                d_l = sorted([int(d) for d in (it_l.get("dezenas") or it_l.get("listaDezenas") or []) if 1 <= int(d) <= 25])
+                                dt_l = str(it_l.get("data") or it_l.get("dataApuracao") or "")
+                                if c_l > 0 and len(d_l) == 15:
+                                    regs.append({"Concurso": c_l, "Data": dt_l, "Dezenas": d_l})
+                        except Exception:
+                            pass
                         df = pd.DataFrame(regs).drop_duplicates(subset=["Concurso"]).sort_values("Concurso").reset_index(drop=True)
                         return df.tail(qtd_desejada).reset_index(drop=True), "API Loterias Caixa (Histórico Completo)"
                 elif isinstance(dados, dict) and (dados.get("numero") or dados.get("concurso")):
@@ -127,28 +145,21 @@ MOLDURA = {1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25}
 FIBONACCI = {1, 2, 3, 5, 8, 13, 21}
 
 def pontuar_taticas_no_passo(historico_df):
-    """
-    Dado todo o histórico até o concurso t-1, calcula a pontuação de cada dezena (1..25)
-    segundo 6 táticas estatísticas distintas.
-    """
     n_hist = len(historico_df)
     todas_dezenas = list(range(1, 26))
     ultimo_sorteio = set(historico_df.iloc[-1]["Dezenas"])
 
-    # Frequência acumulada na janela disponível até t-1
     freq_total = {d: 0 for d in todas_dezenas}
     for dezs in historico_df["Dezenas"]:
         for d in dezs:
             freq_total[d] += 1
 
-    # Frequência recente (últimos 5 concursos até t-1)
     rec_df = historico_df.tail(min(5, n_hist))
     freq_rec = {d: 0 for d in todas_dezenas}
     for dezs in rec_df["Dezenas"]:
         for d in dezs:
             freq_rec[d] += 1
 
-    # Atraso atual (quantos concursos seguidos sem sair até t-1)
     atraso = {d: 0 for d in todas_dezenas}
     for d in todas_dezenas:
         cnt = 0
@@ -158,9 +169,8 @@ def pontuar_taticas_no_passo(historico_df):
             cnt += 1
         atraso[d] = cnt
 
-    # Matriz de transição (se saiu em t-1, qual a probabilidade histórica de repetir em t?)
-    trans_saiu = {d: [0, 0] for d in todas_dezenas}      # [vezes_que_repetiu, vezes_que_saiu_antes]
-    trans_nao_saiu = {d: [0, 0] for d in todas_dezenas}  # [vezes_que_veio, vezes_que_faltou_antes]
+    trans_saiu = {d: [0, 0] for d in todas_dezenas}
+    trans_nao_saiu = {d: [0, 0] for d in todas_dezenas}
     lista_hist = historico_df["Dezenas"].tolist()
     if len(lista_hist) >= 2:
         for i in range(len(lista_hist) - 1):
@@ -186,16 +196,10 @@ def pontuar_taticas_no_passo(historico_df):
     }
 
     for d in todas_dezenas:
-        # T1: Frequência relativa histórica
         taticas_scores["T1_Frequencia_Historica"][d] = freq_total[d] / max(n_hist, 1)
-
-        # T2: Momento quente (últimos 5 concursos)
         taticas_scores["T2_Momento_Recente_5c"][d] = freq_rec[d] / max(len(rec_df), 1)
-
-        # T3: Reversão à média por atraso
         taticas_scores["T3_Reversao_Atraso"][d] = min(atraso[d] / 5.0, 1.5)
 
-        # T4: Probabilidade condicional de transição (Markov 1ª ordem)
         if d in ultimo_sorteio:
             num, den = trans_saiu[d]
             prob = (num + 0.6) / (den + 1.0)
@@ -203,11 +207,8 @@ def pontuar_taticas_no_passo(historico_df):
             num, den = trans_nao_saiu[d]
             prob = (num + 0.6) / (den + 1.0)
         taticas_scores["T4_Cadeia_Markov_Transicao"][d] = prob
-
-        # T5: Tendência de repetição (na Lotofácil, ~9 dezenas repetem do concurso anterior)
         taticas_scores["T5_Repeticao_Ultimo_Sorteio"][d] = 0.62 if d in ultimo_sorteio else 0.38
 
-        # T6: Equilíbrio estrutural (Moldura, Primos, Fibonacci + frequência)
         bonus_est = 0.0
         if d in MOLDURA: bonus_est += 0.35
         if d in PRIMOS: bonus_est += 0.25
@@ -217,11 +218,6 @@ def pontuar_taticas_no_passo(historico_df):
     return taticas_scores
 
 def executar_walk_forward(df_concursos):
-    """
-    Parte do concurso mais antigo e avança passo a passo até o concurso mais recente.
-    Em cada etapa t, usa os concursos 0..t-1 para prever o concurso t, mede os acertos
-    de cada tática (Top 15 dezenas da tática vs. resultado real em t) e atualiza a eficiência.
-    """
     n = len(df_concursos)
     nomes_taticas = [
         "T1_Frequencia_Historica",
@@ -250,7 +246,6 @@ def executar_walk_forward(df_concursos):
 
         historico_passos.append(passo_info)
 
-    # Pesos aprendidos por cada tática com base na média de acertos + bônus para acertos >= 11
     resumo_taticas = []
     pesos_aprendidos = {}
     for tat in nomes_taticas:
@@ -258,7 +253,6 @@ def executar_walk_forward(df_concursos):
         media_hits = float(arr.mean()) if len(arr) > 0 else 9.0
         premiados = int(np.sum(arr >= 11))
         max_hits = int(arr.max()) if len(arr) > 0 else 0
-        # Peso exponencial suave para valorizar as táticas que mais acertaram na sequência
         peso = max(0.05, (media_hits - 7.5) ** 2 + premiados * 0.25)
         pesos_aprendidos[tat] = peso
         resumo_taticas.append({
@@ -276,13 +270,11 @@ def executar_walk_forward(df_concursos):
     df_resumo_tat = pd.DataFrame(resumo_taticas).sort_values("Média Acertos (em 15)", ascending=False).reset_index(drop=True)
     df_resumo_tat["Importância (%)"] = (df_resumo_tat["Peso Aprendido"] / df_resumo_tat["Peso Aprendido"].sum() * 100).round(1)
 
-    # Projeção final para o PRÓXIMO concurso usando TODOS os n concursos e os pesos aprendidos
     scores_finais_step = pontuar_taticas_no_passo(df_concursos)
     ranking_dezenas = []
     for d in range(1, 26):
         score_d = 0.0
         for tat in nomes_taticas:
-            # Normaliza cada tática entre 0 e 1 antes de ponderar
             vals_tat = list(scores_finais_step[tat].values())
             vmin, vmax = min(vals_tat), max(vals_tat)
             norm = (scores_finais_step[tat][d] - vmin) / (vmax - vmin) if vmax > vmin else 0.5
@@ -300,14 +292,10 @@ def executar_walk_forward(df_concursos):
     ).reset_index(drop=True)
     df_rank_dez.insert(0, "Posição", df_rank_dez.index + 1)
 
-    # ==========================================
-    # MONTAGEM DOS 3 JOGOS (10 FIXAS + 5 EXCLUSIVAS CADA = 25 DEZENAS)
-    # ==========================================
     todas_ordenadas = df_rank_dez["Dezena"].tolist()
     fixas_10 = sorted(todas_ordenadas[:10])
-    restantes_15 = todas_ordenadas[10:]  # Exatamente 15 dezenas restantes (posições 11 a 25)
+    restantes_15 = todas_ordenadas[10:]
 
-    # Distribui as 15 restantes em 3 grupos exclusivos de 5 dezenas
     excl_jogo1 = sorted(restantes_15[0:5])
     excl_jogo2 = sorted(restantes_15[5:10])
     excl_jogo3 = sorted(restantes_15[10:15])
@@ -328,7 +316,6 @@ def executar_walk_forward(df_concursos):
         "jogo_2": jogo_2,
         "jogo_3": jogo_3,
     }
-
 
 def gerar_excel_jogos(res, df_conc):
     import openpyxl
@@ -362,7 +349,6 @@ def gerar_excel_jogos(res, df_conc):
     lado = Side(style="thin", color=borda_cor)
     borda = Border(left=lado, right=lado, top=lado, bottom=lado)
 
-    # Cabeçalho principal (18 colunas: Jogo, Tipo / Perfil, Dezena 01..Dezena 15, Qtd Fixas)
     ws.merge_cells("A1:R1")
     ws["A1"] = "LOTOFÁCIL — 3 JOGOS SUGERIDOS (FECHAMENTO 25 DEZENAS)"
     ws["A1"].font = f_titulo
@@ -424,7 +410,6 @@ def gerar_excel_jogos(res, df_conc):
         c_tot.border = borda
         ws.row_dimensions[idx_j].height = 24
 
-    # Linha de referência com apenas as 10 Fixas
     ws.cell(row=9, column=1, value="10 Fixas").font = f_bold
     ws.cell(row=9, column=1).alignment = Alignment(horizontal="center")
     ws.cell(row=9, column=1).border = borda
@@ -438,7 +423,6 @@ def gerar_excel_jogos(res, df_conc):
         cf.alignment = Alignment(horizontal="center")
         cf.border = borda
 
-    # Aba 2: Ranking das 25 Dezenas
     ws_rk = wb.create_sheet("Ranking_25_Dezenas")
     df_rk = res["df_rank_dez"].copy()
     df_rk["Papel nos 3 Jogos"] = [
@@ -458,7 +442,6 @@ def gerar_excel_jogos(res, df_conc):
             if r_i % 2 == 1:
                 cel.fill = fill_zebra
 
-    # Aba 3: Eficiência das Táticas
     ws_tat = wb.create_sheet("Eficiencia_Taticas")
     df_tat = res["df_resumo_tat"]
     for c_i, h in enumerate(df_tat.columns, start=1):
@@ -521,16 +504,19 @@ if iniciar:
 res = st.session_state["resultado_wf"]
 
 if res is None:
-    st.info("👈 Escolha a quantidade de concursos (10 a 100) na barra lateral e clique em **🚀 Iniciar Análise Walk-Forward**.")
+    st.info("👈 Escolha a quantidade de concursos (10 a 100) na barra lateral e clique em **🚀 Iniciar Análise**.")
 else:
     df_conc = res["df_conc"]
     c_ini = int(df_conc.iloc[0]["Concurso"])
     c_fim = int(df_conc.iloc[-1]["Concurso"])
-    st.success(f"✅ Análise concluída! Fonte: **{res['origem']}** | Concursos avaliados: **{c_ini} até {c_fim}** ({len(df_conc)} sorteios).")
+    data_fim = str(df_conc.iloc[-1]["Data"] or "").strip()
+    dezenas_fim = formatar_dezenas(df_conc.iloc[-1]["Dezenas"])
+    ref_data_txt = f" ({data_fim})" if data_fim else ""
+    st.success(
+        f"✅ Análise concluída! Fonte: **{res['origem']}** | Concursos avaliados: **{c_ini} até {c_fim}** ({len(df_conc)} sorteios).\n\n"
+        f"📌 **Último concurso usado como referência:** **Concurso {c_fim}{ref_data_txt}** — Dezenas: `{dezenas_fim}`"
+    )
 
-    # ==========================================
-    # EXIBIÇÃO DOS 3 JOGOS SUGERIDOS (FECHAMENTO 25 DEZENAS)
-    # ==========================================
     st.subheader("🎯 Sugestão Final — 3 Jogos Cobrindo Todas as 25 Dezenas")
     st.markdown(f"**🔒 10 Dezenas Fixas (repetem nos 3 jogos):** `{formatar_dezenas(res['fixas_10'])}`")
 
@@ -554,7 +540,6 @@ else:
             f"**5 Exclusivas:** `{formatar_dezenas(res['excl_3'])}`"
         )
 
-    # Verificação matemática automática da cobertura das 25 dezenas
     uniao_25 = sorted(list(set(res["jogo_1"]) | set(res["jogo_2"]) | set(res["jogo_3"])))
     inter_12 = sorted(list(set(res["jogo_1"]) & set(res["jogo_2"])))
     inter_13 = sorted(list(set(res["jogo_1"]) & set(res["jogo_3"])))
@@ -564,7 +549,6 @@ else:
         f"Repetidas entre Jogo 1 e 2 = {len(inter_12)} | Jogo 1 e 3 = {len(inter_13)} | Jogo 2 e 3 = {len(inter_23)}."
     )
 
-    # Tabela em colunas (1 número por coluna) + Botão de Exportação para Excel (.xlsx)
     df_export_preview = pd.DataFrame([
         {"Jogo": "Jogo 1", **{f"Bola {i+1:02d}": f"{d:02d}" for i, d in enumerate(res["jogo_1"])}},
         {"Jogo": "Jogo 2", **{f"Bola {i+1:02d}": f"{d:02d}" for i, d in enumerate(res["jogo_2"])}},
