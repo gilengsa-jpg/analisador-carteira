@@ -8,16 +8,15 @@ import pandas as pd
 import numpy as np
 import openpyxl
 
-st.set_page_config(page_title="Carteira Unificada & Retorno dos Investimentos", layout="wide")
+st.set_page_config(page_title="Carteira Unificada & Consulta de Investimentos", layout="wide")
 
 # Caminhos de busca automática:
 # 1) Na mesma pasta do rf_fiis_app.py no repositório do GitHub / Streamlit Cloud
-# 2) Caminho local do Windows (caso rode localmente)
+# 2) Caminho local do Windows
 CAMINHO_REPO = Path(__file__).resolve().parent / "carteira_unificada_Investimentos.xlsx"
 CAMINHO_WINDOWS = Path(r"C:\Users\Gil\OneDrive\1.00-Ideias\aplicação em ações\carteira_unificada_Investimentos.xlsx")
 
 def normalizar_url_github(url: str) -> str:
-    """Converte link comum do GitHub (/blob/...) em link direto de download (raw)."""
     url = url.strip()
     if "github.com" in url and "/blob/" in url:
         url = url.replace("https://github.com/", "https://raw.githubusercontent.com/").replace("/blob/", "/")
@@ -30,7 +29,6 @@ def baixar_planilha_github(url_raw: str) -> bytes:
         return resp.read()
 
 def obter_fonte_excel(arquivo_upload, url_github: str):
-    """Retorna (fonte_bytes_ou_path, descricao_origem, caminho_gravacao_local_ou_None)."""
     if arquivo_upload is not None:
         return io.BytesIO(arquivo_upload.getvalue()), f"Upload manual: `{arquivo_upload.name}`", None
 
@@ -57,12 +55,14 @@ def carregar_dados_planilha(fonte_excel):
     capital_planilha = float(ws["E4"].value or 100000.0)
     data_aplicacao_raw = ws["H4"].value
 
+    # Ler tabela principal (cabeçalho na linha 6 -> header=5)
     if isinstance(fonte_excel, io.BytesIO):
         fonte_excel.seek(0)
     df_cart = pd.read_excel(fonte_excel, sheet_name="Carteira_Unificada", header=5)
     df_cart = df_cart[df_cart["Ativo"].notna()].copy()
     df_cart = df_cart[~df_cart["Classe"].astype(str).str.upper().eq("TOTAL")].copy()
 
+    # Ler percentuais personalizados
     if isinstance(fonte_excel, io.BytesIO):
         fonte_excel.seek(0)
     df_pers = pd.read_excel(fonte_excel, sheet_name="Personalizados", header=2)
@@ -84,6 +84,15 @@ def carregar_dados_planilha(fonte_excel):
 
     df_cart["Alocado_Efetivo (R$)"] = (capital_planilha * (df_cart["Peso_Efetivo (%)"] / 100.0)).round(2)
 
+    # Ler Melhores Oportunidades se existir
+    df_oportunidades = pd.DataFrame()
+    if "Melhores_Oportunidades" in wb.sheetnames:
+        if isinstance(fonte_excel, io.BytesIO):
+            fonte_excel.seek(0)
+        df_oportunidades = pd.read_excel(fonte_excel, sheet_name="Melhores_Oportunidades", header=2)
+        df_oportunidades = df_oportunidades[df_oportunidades["Ticker / Produto"].notna()].copy()
+
+    # Ler Parâmetros Macro se existir
     params_macro = {}
     if "Parametros_Macro" in wb.sheetnames:
         if isinstance(fonte_excel, io.BytesIO):
@@ -94,16 +103,17 @@ def carregar_dados_planilha(fonte_excel):
                 params_macro[str(r["Parâmetro"]).strip()] = float(r["Valor (Editável)"])
 
     return {
+        "abas_disponiveis": wb.sheetnames,
         "opcao_escolhida": opcao_escolhida,
         "capital_planilha": capital_planilha,
         "data_aplicacao": str(data_aplicacao_raw)[:10] if data_aplicacao_raw else "2026-01-02",
         "df_carteira": df_cart,
         "df_personalizados": df_pers,
+        "df_oportunidades": df_oportunidades,
         "params_macro": params_macro,
     }
 
 def gerar_excel_atualizado_bytes(fonte_original, nova_opcao: str, novo_capital: float, nova_data_str: str, df_editado: pd.DataFrame) -> bytes:
-    """Atualiza a planilha preservando estilos/fórmulas e retorna os bytes para download (ideal para Streamlit Cloud/GitHub)."""
     if isinstance(fonte_original, io.BytesIO):
         fonte_original.seek(0)
     wb = openpyxl.load_workbook(fonte_original)
@@ -174,9 +184,9 @@ def buscar_cotacao_e_proventos_periodo(ticker: str, data_inicio_str: str):
 # ==========================================
 st.title("🏛️ Painel Unificado de Investimentos — Ações, FIIs e Renda Fixa")
 st.markdown(
-    "Lê a base **`carteira_unificada_Investimentos.xlsx`** diretamente do repositório **GitHub** (ou upload), "
-    "calcula quanto você teria na **data corrente** na aba **Retorno dos Investimentos** e mantém as abas "
-    "de **Carteira Unificada**, **Percentuais Personalizados**, **Análise de FIIs & Renda Fixa** e **Evolução Histórica**."
+    "Consulta e busca as informações salvas em **`carteira_unificada_Investimentos.xlsx`** (GitHub ou local), "
+    "calcula quanto você teria na **data corrente** na aba **Retorno dos Investimentos** e mantém todas as "
+    "demais abas de análise."
 )
 
 st.sidebar.header("🐙 Fonte GitHub / Planilha Base")
@@ -401,9 +411,10 @@ def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc_fii):
     return df, df_precos
 
 # ==========================================
-# ABAS DO PAINEL
+# ABAS DO PAINEL (INCLUINDO A ABA DEDICADA DE BUSCA NA PLANILHA)
 # ==========================================
-aba_retorno, aba_carteira, aba_pers, aba_fiis_rf, aba_evolucao = st.tabs([
+aba_busca, aba_retorno, aba_carteira, aba_pers, aba_fiis_rf, aba_evolucao = st.tabs([
+    "🔍 Busca Carteira (Excel)",
     "💰 Retorno dos Investimentos",
     "🎯 Carteira Unificada",
     "⚖️ Percentuais Personalizados",
@@ -412,7 +423,98 @@ aba_retorno, aba_carteira, aba_pers, aba_fiis_rf, aba_evolucao = st.tabs([
 ])
 
 # ------------------------------------------
-# ABA 1: RETORNO DOS INVESTIMENTOS
+# ABA 1: BUSCA CARTEIRA (EXCEL) — CONSULTA E FILTRO DOS DADOS DE carteira_unificada_Investimentos
+# ------------------------------------------
+with aba_busca:
+    st.subheader("🔍 Consulta e Busca dos Meus Investimentos (`carteira_unificada_Investimentos.xlsx`)")
+    st.caption(
+        "Esta aba exibe e filtra diretamente os registros extraídos do arquivo `carteira_unificada_Investimentos.xlsx` "
+        "(carteira salva, perfis personalizados, oportunidades e parâmetros macro)."
+    )
+
+    c_info1, c_info2, c_info3, c_info4 = st.columns(4)
+    c_info1.metric("Estratégia Salva no Excel", dados_planilha["opcao_escolhida"])
+    c_info2.metric("Capital Salvo no Excel", f"R$ {dados_planilha['capital_planilha']:,.2f}")
+    c_info3.metric("Data Base da Aplicação", dados_planilha["data_aplicacao"])
+    c_info4.metric("Ativos Encontrados", f"{len(dados_planilha['df_carteira'])} ativos")
+
+    st.divider()
+
+    # Filtros interativos de busca sobre os investimentos salvos
+    f_col1, f_col2, f_col3 = st.columns([2, 1.5, 1.5])
+    with f_col1:
+        termo_busca = st.text_input(
+            "Buscar por Ticker / Produto ou Detalhe:",
+            value="",
+            placeholder="Ex.: WEGE3, KNCR11, Selic, CDI..."
+        ).strip().upper()
+    with f_col2:
+        classes_disp = sorted(dados_planilha["df_carteira"]["Classe"].dropna().astype(str).unique().tolist())
+        classes_filtro = st.multiselect(
+            "Filtrar por Classe:",
+            options=classes_disp,
+            default=classes_disp
+        )
+    with f_col3:
+        score_min = st.slider("Score mínimo:", min_value=0.0, max_value=100.0, value=0.0, step=5.0)
+
+    df_busca = dados_planilha["df_carteira"].copy()
+    if classes_filtro:
+        df_busca = df_busca[df_busca["Classe"].astype(str).isin(classes_filtro)]
+    if termo_busca:
+        mask_txt = (
+            df_busca["Ativo"].astype(str).str.upper().str.contains(termo_busca, na=False) |
+            df_busca["Detalhe / Qtd."].astype(str).str.upper().str.contains(termo_busca, na=False)
+        )
+        df_busca = df_busca[mask_txt]
+    if "Score" in df_busca.columns:
+        df_busca = df_busca[pd.to_numeric(df_busca["Score"], errors="coerce").fillna(0.0) >= score_min]
+
+    st.markdown(f"**📋 Registros encontrados na Carteira Salva ({len(df_busca)}):**")
+    st.dataframe(df_busca, use_container_width=True, hide_index=True)
+
+    # Detalhamento rápido se o usuário filtrar um ativo específico
+    if len(df_busca) > 0:
+        ativo_detalhe = st.selectbox(
+            "Inspecionar ficha completa de um ativo da planilha:",
+            options=df_busca["Ativo"].astype(str).tolist()
+        )
+        row_det = df_busca[df_busca["Ativo"].astype(str) == ativo_detalhe].iloc[0]
+        row_pers_det = dados_planilha["df_personalizados"][
+            dados_planilha["df_personalizados"]["Ativo"].astype(str).str.strip() == ativo_detalhe
+        ]
+
+        d1, d2, d3, d4, d5 = st.columns(5)
+        d1.metric("Classe", str(row_det.get("Classe", "-")))
+        d2.metric("Data Compra", str(row_det.get("Data_Compra", "-"))[:10])
+        d3.metric("Preço Compra (R$)", f"R$ {float(row_det.get('Preco_Compra_RS', 0.0)):,.2f}")
+        d4.metric("Peso Efetivo (%)", f"{float(row_det.get('Peso_Efetivo (%)', 0.0)):.2f}%")
+        d5.metric("Valor Alocado (R$)", f"R$ {float(row_det.get('Alocado_Efetivo (R$)', 0.0)):,.2f}")
+
+        if not row_pers_det.empty:
+            rp = row_pers_det.iloc[0]
+            st.info(
+                f"**Perfis cadastrados para {ativo_detalhe} na aba `Personalizados`:** "
+                f"Conservador: **{rp.get('Conservador (%)', 0)}%** | "
+                f"Moderado: **{rp.get('Moderado (%)', 0)}%** | "
+                f"Agressivo: **{rp.get('Agressivo (%)', 0)}%** | "
+                f"Salvar na Base: **{rp.get('Salvar na Base', 'Sim')}**"
+            )
+
+    with st.expander("📑 Ver outras abas extraídas da planilha (`Melhores_Oportunidades` e `Parametros_Macro`)"):
+        if not dados_planilha["df_oportunidades"].empty:
+            st.markdown("**Melhores Oportunidades Salvas:**")
+            st.dataframe(dados_planilha["df_oportunidades"], use_container_width=True, hide_index=True)
+        if dados_planilha["params_macro"]:
+            st.markdown("**Parâmetros Macro Salvos:**")
+            df_pm_view = pd.DataFrame(
+                list(dados_planilha["params_macro"].items()),
+                columns=["Parâmetro", "Valor Salvo"]
+            )
+            st.dataframe(df_pm_view, use_container_width=True, hide_index=True)
+
+# ------------------------------------------
+# ABA 2: RETORNO DOS INVESTIMENTOS (DATA DE COMPRA -> DATA CORRENTE)
 # ------------------------------------------
 with aba_retorno:
     st.subheader(f"💰 Retorno Real dos Investimentos até a Data Corrente ({date.today().strftime('%d/%m/%Y')})")
@@ -532,7 +634,7 @@ with aba_retorno:
     st.bar_chart(df_retorno.set_index("Ativo")[["Investido (R$)", "Valor Hoje (R$)"]], use_container_width=True)
 
 # ------------------------------------------
-# ABA 2: CARTEIRA UNIFICADA
+# ABA 3: CARTEIRA UNIFICADA
 # ------------------------------------------
 with aba_carteira:
     st.subheader("🎯 Carteira Unificada Salva na Planilha")
@@ -566,14 +668,14 @@ with aba_carteira:
             st.success(f"Salvo diretamente em `{caminho_gravacao}`!")
 
 # ------------------------------------------
-# ABA 3: PERCENTUAIS PERSONALIZADOS
+# ABA 4: PERCENTUAIS PERSONALIZADOS
 # ------------------------------------------
 with aba_pers:
     st.subheader("⚖️ Percentuais Personalizados por Perfil (Conservador, Moderado, Agressivo)")
     st.dataframe(dados_planilha["df_personalizados"], use_container_width=True, hide_index=True)
 
 # ------------------------------------------
-# ABA 4: ANÁLISE DE FIIs E RENDA FIXA
+# ABA 5: ANÁLISE DE FIIs E RENDA FIXA
 # ------------------------------------------
 with aba_fiis_rf:
     st.subheader("🏢 Ranking de Oportunidades — Renda Fixa e FIIs")
@@ -596,7 +698,7 @@ with aba_fiis_rf:
         st.dataframe(df_fii_rank, use_container_width=True, hide_index=True)
 
 # ------------------------------------------
-# ABA 5: EVOLUÇÃO HISTÓRICA (30 A 360 DIAS)
+# ABA 6: EVOLUÇÃO HISTÓRICA (30 A 360 DIAS)
 # ------------------------------------------
 with aba_evolucao:
     st.subheader("📈 Evolução Histórica dos Ativos da Carteira (30 a 360 dias)")
