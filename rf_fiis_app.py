@@ -1,6 +1,7 @@
-import os
+import io
 from pathlib import Path
-from datetime import datetime, date
+from datetime import date
+import urllib.request
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -9,54 +10,85 @@ import openpyxl
 
 st.set_page_config(page_title="Carteira Unificada & Retorno dos Investimentos", layout="wide")
 
-# Caminho padrão configurado no Windows + fallback na pasta local do script
+# Caminhos de busca automática:
+# 1) Na mesma pasta do rf_fiis_app.py no repositório do GitHub / Streamlit Cloud
+# 2) Caminho local do Windows (caso rode localmente)
+CAMINHO_REPO = Path(__file__).resolve().parent / "carteira_unificada_Investimentos.xlsx"
 CAMINHO_WINDOWS = Path(r"C:\Users\Gil\OneDrive\1.00-Ideias\aplicação em ações\carteira_unificada_Investimentos.xlsx")
-CAMINHO_LOCAL = Path(__file__).parent / "carteira_unificada_Investimentos.xlsx"
 
-def resolver_caminho_planilha(caminho_custom: str = "") -> Path | None:
-    if caminho_custom and Path(caminho_custom).exists():
-        return Path(caminho_custom)
+def normalizar_url_github(url: str) -> str:
+    """Converte link comum do GitHub (/blob/...) em link direto de download (raw)."""
+    url = url.strip()
+    if "github.com" in url and "/blob/" in url:
+        url = url.replace("https://github.com/", "https://raw.githubusercontent.com/").replace("/blob/", "/")
+    return url
+
+@st.cache_data(ttl=300)
+def baixar_planilha_github(url_raw: str) -> bytes:
+    req = urllib.request.Request(url_raw, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return resp.read()
+
+def obter_fonte_excel(arquivo_upload, url_github: str):
+    """Retorna (fonte_bytes_ou_path, descricao_origem, caminho_gravacao_local_ou_None)."""
+    if arquivo_upload is not None:
+        return io.BytesIO(arquivo_upload.getvalue()), f"Upload manual: `{arquivo_upload.name}`", None
+
+    if url_github.strip():
+        url_norm = normalizar_url_github(url_github)
+        dados_bytes = baixar_planilha_github(url_norm)
+        return io.BytesIO(dados_bytes), f"GitHub (URL remota): `{url_norm}`", None
+
+    if CAMINHO_REPO.exists():
+        return CAMINHO_REPO, f"Repositório GitHub / Pasta do App: `{CAMINHO_REPO.name}`", CAMINHO_REPO
+
     if CAMINHO_WINDOWS.exists():
-        return CAMINHO_WINDOWS
-    if CAMINHO_LOCAL.exists():
-        return CAMINHO_LOCAL
-    return None
+        return CAMINHO_WINDOWS, f"Pasta Local Windows: `{CAMINHO_WINDOWS}`", CAMINHO_WINDOWS
 
-def carregar_dados_planilha(caminho_xlsx: Path):
-    wb = openpyxl.load_workbook(caminho_xlsx, data_only=True)
+    return None, None, None
+
+def carregar_dados_planilha(fonte_excel):
+    if isinstance(fonte_excel, io.BytesIO):
+        fonte_excel.seek(0)
+    wb = openpyxl.load_workbook(fonte_excel, data_only=True)
     ws = wb["Carteira_Unificada"]
 
     opcao_escolhida = str(ws["B4"].value or "Divisão igualitária").strip()
     capital_planilha = float(ws["E4"].value or 100000.0)
     data_aplicacao_raw = ws["H4"].value
 
-    # Ler tabela principal (cabeçalho na linha 6 -> header=5)
-    df_cart = pd.read_excel(caminho_xlsx, sheet_name="Carteira_Unificada", header=5)
+    if isinstance(fonte_excel, io.BytesIO):
+        fonte_excel.seek(0)
+    df_cart = pd.read_excel(fonte_excel, sheet_name="Carteira_Unificada", header=5)
     df_cart = df_cart[df_cart["Ativo"].notna()].copy()
     df_cart = df_cart[~df_cart["Classe"].astype(str).str.upper().eq("TOTAL")].copy()
 
-    # Ler percentuais personalizados
-    df_pers = pd.read_excel(caminho_xlsx, sheet_name="Personalizados", header=2)
+    if isinstance(fonte_excel, io.BytesIO):
+        fonte_excel.seek(0)
+    df_pers = pd.read_excel(fonte_excel, sheet_name="Personalizados", header=2)
     df_pers = df_pers[df_pers["Ativo"].notna()].copy()
     df_pers = df_pers[~df_pers["Classe"].astype(str).str.upper().str.startswith("TOTAL")].copy()
 
-    # Calcular pesos efetivos conforme a opção escolhida na planilha
     n_ativos = len(df_cart)
     if opcao_escolhida == "Divisão igualitária" and n_ativos > 0:
         df_cart["Peso_Efetivo (%)"] = round(100.0 / n_ativos, 2)
     elif opcao_escolhida in ("Conservador", "Moderado", "Agressivo"):
         col_perfil = f"{opcao_escolhida} (%)"
-        mapa_pesos = dict(zip(df_pers["Ativo"].astype(str).str.strip(), pd.to_numeric(df_pers[col_perfil], errors="coerce").fillna(0.0)))
+        mapa_pesos = dict(zip(
+            df_pers["Ativo"].astype(str).str.strip(),
+            pd.to_numeric(df_pers[col_perfil], errors="coerce").fillna(0.0)
+        ))
         df_cart["Peso_Efetivo (%)"] = df_cart["Ativo"].astype(str).str.strip().map(mapa_pesos).fillna(0.0)
     else:
         df_cart["Peso_Efetivo (%)"] = pd.to_numeric(df_cart["Peso (%)"], errors="coerce").fillna(round(100.0 / max(n_ativos, 1), 2))
 
     df_cart["Alocado_Efetivo (R$)"] = (capital_planilha * (df_cart["Peso_Efetivo (%)"] / 100.0)).round(2)
 
-    # Ler parâmetros macro se existir a aba
     params_macro = {}
     if "Parametros_Macro" in wb.sheetnames:
-        df_pm = pd.read_excel(caminho_xlsx, sheet_name="Parametros_Macro", header=2)
+        if isinstance(fonte_excel, io.BytesIO):
+            fonte_excel.seek(0)
+        df_pm = pd.read_excel(fonte_excel, sheet_name="Parametros_Macro", header=2)
         for _, r in df_pm.iterrows():
             if pd.notna(r.get("Parâmetro")) and pd.notna(r.get("Valor (Editável)")):
                 params_macro[str(r["Parâmetro"]).strip()] = float(r["Valor (Editável)"])
@@ -70,8 +102,11 @@ def carregar_dados_planilha(caminho_xlsx: Path):
         "params_macro": params_macro,
     }
 
-def salvar_alteracoes_planilha(caminho_xlsx: Path, nova_opcao: str, novo_capital: float, nova_data_str: str, df_editado: pd.DataFrame):
-    wb = openpyxl.load_workbook(caminho_xlsx)
+def gerar_excel_atualizado_bytes(fonte_original, nova_opcao: str, novo_capital: float, nova_data_str: str, df_editado: pd.DataFrame) -> bytes:
+    """Atualiza a planilha preservando estilos/fórmulas e retorna os bytes para download (ideal para Streamlit Cloud/GitHub)."""
+    if isinstance(fonte_original, io.BytesIO):
+        fonte_original.seek(0)
+    wb = openpyxl.load_workbook(fonte_original)
     ws = wb["Carteira_Unificada"]
     ws["B4"] = nova_opcao
     ws["E4"] = float(novo_capital)
@@ -83,11 +118,14 @@ def salvar_alteracoes_planilha(caminho_xlsx: Path, nova_opcao: str, novo_capital
         ws[f"C{i}"] = str(row.get("Data_Compra", nova_data_str))[:10]
         ws[f"D{i}"] = float(row.get("Preco_Compra_RS", 0.0))
 
-    wb.save(caminho_xlsx)
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
 
 @st.cache_data(ttl=600)
 def buscar_cotacao_e_proventos_periodo(ticker: str, data_inicio_str: str):
-    """Busca cotação histórica na data de compra (ou pregão útil mais próximo), cotação atual e proventos no período."""
+    """Consulta cotação histórica na data de compra (pregão mais próximo), cotação atual e proventos até a data corrente."""
     try:
         dt_ini = pd.to_datetime(data_inicio_str)
         dt_busca_ini = (dt_ini - pd.Timedelta(days=7)).strftime("%Y-%m-%d")
@@ -103,11 +141,9 @@ def buscar_cotacao_e_proventos_periodo(ticker: str, data_inicio_str: str):
         if close_s.empty:
             return None, None, 0.0, None
 
-        # Remove timezone para comparação segura
         idx_naive = close_s.index.tz_localize(None) if close_s.index.tz is not None else close_s.index
         close_s.index = idx_naive
 
-        # Cotação na data de compra ou pregão imediatamente posterior/anterior
         pos_ou_igual = close_s[close_s.index >= dt_ini]
         if not pos_ou_igual.empty:
             preco_data_compra = float(pos_ou_igual.iloc[0])
@@ -118,7 +154,6 @@ def buscar_cotacao_e_proventos_periodo(ticker: str, data_inicio_str: str):
 
         preco_atual = float(close_s.iloc[-1])
 
-        # Proventos (dividendos/rendimentos) pagos desde a data de compra
         proventos_por_cota = 0.0
         try:
             tk_obj = yf.Ticker(ticker)
@@ -135,34 +170,45 @@ def buscar_cotacao_e_proventos_periodo(ticker: str, data_inicio_str: str):
         return None, None, 0.0, None
 
 # ==========================================
-# TÍTULO E CONFIGURAÇÃO DA PLANILHA BASE
+# CABEÇALHO E CONEXÃO COM GITHUB / PLANILHA
 # ==========================================
 st.title("🏛️ Painel Unificado de Investimentos — Ações, FIIs e Renda Fixa")
 st.markdown(
-    "Consulta a base salva em **`carteira_unificada_Investimentos.xlsx`**, calcula a evolução real dos ativos "
-    "desde a **data da aplicação até a data corrente** na aba **Retorno dos Investimentos** e mantém "
-    "as demais abas de análise e alocação."
+    "Lê a base **`carteira_unificada_Investimentos.xlsx`** diretamente do repositório **GitHub** (ou upload), "
+    "calcula quanto você teria na **data corrente** na aba **Retorno dos Investimentos** e mantém as abas "
+    "de **Carteira Unificada**, **Percentuais Personalizados**, **Análise de FIIs & Renda Fixa** e **Evolução Histórica**."
 )
 
-st.sidebar.header("📂 Fonte da Carteira Salva (Excel)")
-caminho_informado = st.sidebar.text_input(
-    "Caminho da planilha Excel:",
-    value=str(CAMINHO_WINDOWS)
+st.sidebar.header("🐙 Fonte GitHub / Planilha Base")
+url_github_input = st.sidebar.text_input(
+    "URL do arquivo no GitHub (opcional se estiver no mesmo repo):",
+    value="",
+    placeholder="https://github.com/usuario/repo/blob/main/carteira_unificada_Investimentos.xlsx"
+)
+arquivo_upload = st.sidebar.file_uploader(
+    "Ou envie uma versão local (.xlsx):",
+    type=["xlsx"]
 )
 
-arquivo_excel = resolver_caminho_planilha(caminho_informado)
+try:
+    fonte_excel, origem_str, caminho_gravacao = obter_fonte_excel(arquivo_upload, url_github_input)
+except Exception as e:
+    st.error(f"Erro ao acessar a planilha no GitHub: {e}")
+    st.stop()
 
-if arquivo_excel is None:
+if fonte_excel is None:
     st.warning(
-        f"⚠️ Planilha não encontrada em `{caminho_informado}` nem na pasta local. "
-        "Coloque o arquivo `carteira_unificada_Investimentos.xlsx` na pasta indicada para carregar sua carteira salva."
+        "⚠️ Arquivo `carteira_unificada_Investimentos.xlsx` não encontrado no repositório do GitHub. "
+        "Suba o arquivo `.xlsx` na mesma pasta do `rf_fiis_app.py` no GitHub, informe a URL na barra lateral ou faça upload."
     )
     st.stop()
 
-st.sidebar.success(f"Planilha conectada: `{arquivo_excel.name}`")
-dados_planilha = carregar_dados_planilha(arquivo_excel)
+st.sidebar.success(f"Conectado: {origem_str}")
+dados_planilha = carregar_dados_planilha(fonte_excel)
 
-# Parâmetros macro na barra lateral (inicializados a partir da planilha)
+# ==========================================
+# PARÂMETROS MACRO NA BARRA LATERAL
+# ==========================================
 st.sidebar.header("⚙️ Capital, Prazo e Cenário Macro")
 capital_total = st.sidebar.number_input(
     "Capital Total Disponível (R$)",
@@ -355,7 +401,7 @@ def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc_fii):
     return df, df_precos
 
 # ==========================================
-# ABAS PRINCIPAIS DO PAINEL
+# ABAS DO PAINEL
 # ==========================================
 aba_retorno, aba_carteira, aba_pers, aba_fiis_rf, aba_evolucao = st.tabs([
     "💰 Retorno dos Investimentos",
@@ -366,14 +412,13 @@ aba_retorno, aba_carteira, aba_pers, aba_fiis_rf, aba_evolucao = st.tabs([
 ])
 
 # ------------------------------------------
-# ABA 1: RETORNO DOS INVESTIMENTOS (DATA DE COMPRA -> DATA CORRENTE)
+# ABA 1: RETORNO DOS INVESTIMENTOS
 # ------------------------------------------
 with aba_retorno:
-    data_hoje_str = date.today().strftime("%Y-%m-%d")
-    st.subheader(f"💰 Retorno Real dos Investimentos até Hoje ({date.today().strftime('%d/%m/%Y')})")
+    st.subheader(f"💰 Retorno Real dos Investimentos até a Data Corrente ({date.today().strftime('%d/%m/%Y')})")
     st.caption(
-        "Lê os ativos salvos na planilha `carteira_unificada_Investimentos.xlsx`, consulta a cotação na data da compra "
-        "e a cotação atual de mercado (`yfinance`) para calcular quanto você teria hoje."
+        "Compara a data e o preço de compra registrados na planilha `carteira_unificada_Investimentos.xlsx` "
+        "com as cotações atuais de mercado (`yfinance`) e proventos pagos no período."
     )
 
     df_base = dados_planilha["df_carteira"].copy()
@@ -386,9 +431,8 @@ with aba_retorno:
     with c_cfg2:
         data_aplic_input = st.text_input("Data Base da Aplicação (AAAA-MM-DD):", value=dados_planilha["data_aplicacao"])
     with c_cfg3:
-        st.metric("Data Corrente da Consulta", date.today().strftime("%d/%m/%Y"))
+        st.metric("Data Corrente (Execução)", date.today().strftime("%d/%m/%Y"))
 
-    # Recalcula pesos se o usuário trocar o seletor na tela
     df_pers_ref = dados_planilha["df_personalizados"]
     n_at = len(df_base)
     if estrategia_ativa == "Divisão igualitária" and n_at > 0:
@@ -401,7 +445,7 @@ with aba_retorno:
     df_base["Valor_Investido (R$)"] = (capital_total * (df_base["Peso_Calculado (%)"] / 100.0)).round(2)
 
     linhas_retorno = []
-    with st.spinner("Consultando cotações históricas na data da aplicação e preços atuais..."):
+    with st.spinner("Consultando cotações na data de compra e valores atuais..."):
         for _, row in df_base.iterrows():
             classe = str(row["Classe"]).strip()
             ativo = str(row["Ativo"]).strip()
@@ -446,7 +490,6 @@ with aba_retorno:
                     "Retorno (%)": rentab_pct,
                 })
             else:
-                # Renda Fixa: capitalização proporcional aos dias corridos pela taxa líquida estimada
                 fator_dia = (1.0 + taxa_selic_cdi / 100.0) ** (dias_corridos / 365.0)
                 bruto_rf = valor_investido * (fator_dia - 1.0)
                 aliq_rf = aliquota_ir_regressiva(dias_corridos)
@@ -483,18 +526,19 @@ with aba_retorno:
     m1.metric("Capital Total Aplicado", f"R$ {total_investido:,.2f}")
     m2.metric("Patrimônio Atual (Hoje)", f"R$ {total_hoje:,.2f}", delta=f"{retorno_geral_pct:+.2f}%")
     m3.metric("Lucro / Prejuízo Acumulado", f"R$ {total_lucro:,.2f}")
-    m4.metric("Proventos Acumulados (Ações/FIIs)", f"R$ {total_proventos:,.2f}")
+    m4.metric("Proventos Acumulados", f"R$ {total_proventos:,.2f}")
 
     st.dataframe(df_retorno, use_container_width=True, hide_index=True)
-
     st.bar_chart(df_retorno.set_index("Ativo")[["Investido (R$)", "Valor Hoje (R$)"]], use_container_width=True)
 
 # ------------------------------------------
-# ABA 2: CARTEIRA UNIFICADA (BASE SALVA E EDIÇÃO)
+# ABA 2: CARTEIRA UNIFICADA
 # ------------------------------------------
 with aba_carteira:
     st.subheader("🎯 Carteira Unificada Salva na Planilha")
-    st.caption("Edite as datas ou preços de referência abaixo e clique em salvar para atualizar o arquivo Excel.")
+    st.caption(
+        "Altere datas ou preços de compra abaixo e baixe a planilha atualizada para substituir no seu repositório GitHub."
+    )
 
     df_editavel = st.data_editor(
         dados_planilha["df_carteira"][["Classe", "Ativo", "Data_Compra", "Preco_Compra_RS", "Score", "Peso_Efetivo (%)", "Alocado_Efetivo (R$)", "Detalhe / Qtd."]],
@@ -503,9 +547,23 @@ with aba_carteira:
         key="editor_carteira_salva"
     )
 
-    if st.button("💾 Salvar Alterações na Planilha Excel"):
-        salvar_alteracoes_planilha(arquivo_excel, estrategia_ativa, capital_total, data_aplic_input, df_editavel)
-        st.success("Planilha `carteira_unificada_Investimentos.xlsx` atualizada com sucesso!")
+    excel_atualizado_bytes = gerar_excel_atualizado_bytes(
+        fonte_excel, estrategia_ativa, capital_total, data_aplic_input, df_editavel
+    )
+
+    col_b1, col_b2 = st.columns(2)
+    with col_b1:
+        st.download_button(
+            label="📥 Baixar Planilha Atualizada (carteira_unificada_Investimentos.xlsx)",
+            data=excel_atualizado_bytes,
+            file_name="carteira_unificada_Investimentos.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    with col_b2:
+        if caminho_gravacao is not None and st.button("💾 Salvar Direto no Disco Local"):
+            with open(caminho_gravacao, "wb") as f_out:
+                f_out.write(excel_atualizado_bytes)
+            st.success(f"Salvo diretamente em `{caminho_gravacao}`!")
 
 # ------------------------------------------
 # ABA 3: PERCENTUAIS PERSONALIZADOS
