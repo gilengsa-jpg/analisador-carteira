@@ -84,7 +84,6 @@ def carregar_dados_planilha(fonte_excel):
 
     df_cart["Alocado_Efetivo (R$)"] = (capital_planilha * (df_cart["Peso_Efetivo (%)"] / 100.0)).round(2)
 
-    # Ler Melhores Oportunidades se existir
     df_oportunidades = pd.DataFrame()
     if "Melhores_Oportunidades" in wb.sheetnames:
         if isinstance(fonte_excel, io.BytesIO):
@@ -92,7 +91,6 @@ def carregar_dados_planilha(fonte_excel):
         df_oportunidades = pd.read_excel(fonte_excel, sheet_name="Melhores_Oportunidades", header=2)
         df_oportunidades = df_oportunidades[df_oportunidades["Ticker / Produto"].notna()].copy()
 
-    # Ler Parâmetros Macro se existir
     params_macro = {}
     if "Parametros_Macro" in wb.sheetnames:
         if isinstance(fonte_excel, io.BytesIO):
@@ -135,7 +133,6 @@ def gerar_excel_atualizado_bytes(fonte_original, nova_opcao: str, novo_capital: 
 
 @st.cache_data(ttl=600)
 def buscar_cotacao_e_proventos_periodo(ticker: str, data_inicio_str: str):
-    """Consulta cotação histórica na data de compra (pregão mais próximo), cotação atual e proventos até a data corrente."""
     try:
         dt_ini = pd.to_datetime(data_inicio_str)
         dt_busca_ini = (dt_ini - pd.Timedelta(days=7)).strftime("%Y-%m-%d")
@@ -260,7 +257,7 @@ ir_ganho_capital_fii = st.sidebar.number_input(
 )
 
 # ==========================================
-# FUNÇÕES DE AVALIAÇÃO RF E FIIs (MANTIDAS)
+# FUNÇÕES DE AVALIAÇÃO RF E FIIs
 # ==========================================
 def aliquota_ir_regressiva(dias):
     if dias <= 180:
@@ -411,7 +408,7 @@ def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc_fii):
     return df, df_precos
 
 # ==========================================
-# ABAS DO PAINEL (INCLUINDO A ABA DEDICADA DE BUSCA NA PLANILHA)
+# ABAS DO PAINEL
 # ==========================================
 aba_busca, aba_retorno, aba_carteira, aba_pers, aba_fiis_rf, aba_evolucao = st.tabs([
     "🔍 Busca Carteira (Excel)",
@@ -423,7 +420,7 @@ aba_busca, aba_retorno, aba_carteira, aba_pers, aba_fiis_rf, aba_evolucao = st.t
 ])
 
 # ------------------------------------------
-# ABA 1: BUSCA CARTEIRA (EXCEL) — CONSULTA E FILTRO DOS DADOS DE carteira_unificada_Investimentos
+# ABA 1: BUSCA CARTEIRA (EXCEL)
 # ------------------------------------------
 with aba_busca:
     st.subheader("🔍 Consulta e Busca dos Meus Investimentos (`carteira_unificada_Investimentos.xlsx`)")
@@ -440,7 +437,6 @@ with aba_busca:
 
     st.divider()
 
-    # Filtros interativos de busca sobre os investimentos salvos
     f_col1, f_col2, f_col3 = st.columns([2, 1.5, 1.5])
     with f_col1:
         termo_busca = st.text_input(
@@ -473,7 +469,6 @@ with aba_busca:
     st.markdown(f"**📋 Registros encontrados na Carteira Salva ({len(df_busca)}):**")
     st.dataframe(df_busca, use_container_width=True, hide_index=True)
 
-    # Detalhamento rápido se o usuário filtrar um ativo específico
     if len(df_busca) > 0:
         ativo_detalhe = st.selectbox(
             "Inspecionar ficha completa de um ativo da planilha:",
@@ -514,7 +509,7 @@ with aba_busca:
             st.dataframe(df_pm_view, use_container_width=True, hide_index=True)
 
 # ------------------------------------------
-# ABA 2: RETORNO DOS INVESTIMENTOS (DATA DE COMPRA -> DATA CORRENTE)
+# ABA 2: RETORNO DOS INVESTIMENTOS
 # ------------------------------------------
 with aba_retorno:
     st.subheader(f"💰 Retorno Real dos Investimentos até a Data Corrente ({date.today().strftime('%d/%m/%Y')})")
