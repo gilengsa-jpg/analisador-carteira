@@ -50,12 +50,21 @@ def carregar_dados_planilha(fonte_excel):
     opcao_escolhida = str(ws["B4"].value or "Divisão igualitária").strip()
     capital_planilha = float(ws["E4"].value or 100000.0)
     data_aplicacao_raw = ws["H4"].value
+    data_aplicacao_str = pd.to_datetime(data_aplicacao_raw).strftime("%Y-%m-%d") if pd.notna(data_aplicacao_raw) else "2026-01-02"
 
     if isinstance(fonte_excel, io.BytesIO):
         fonte_excel.seek(0)
     df_cart = pd.read_excel(fonte_excel, sheet_name="Carteira_Unificada", header=5)
     df_cart = df_cart[df_cart["Ativo"].notna()].copy()
     df_cart = df_cart[~df_cart["Classe"].astype(str).str.upper().eq("TOTAL")].copy()
+
+    # Garante que a Data_Compra de cada ativo utilize a própria data da linha ou a Data da Aplicação (H4)
+    if "Data_Compra" not in df_cart.columns:
+        df_cart["Data_Compra"] = data_aplicacao_str
+    else:
+        df_cart["Data_Compra"] = df_cart["Data_Compra"].apply(
+            lambda v: pd.to_datetime(v).strftime("%Y-%m-%d") if pd.notna(v) and str(v).strip() != "" else data_aplicacao_str
+        )
 
     if isinstance(fonte_excel, io.BytesIO):
         fonte_excel.seek(0)
@@ -97,25 +106,26 @@ def carregar_dados_planilha(fonte_excel):
     return {
         "opcao_escolhida": opcao_escolhida,
         "capital_planilha": capital_planilha,
-        "data_aplicacao": str(data_aplicacao_raw)[:10] if data_aplicacao_raw else "2026-01-02",
+        "data_aplicacao": data_aplicacao_str,
         "df_carteira": df_cart,
         "df_personalizados": df_pers,
         "df_oportunidades": df_oportunidades,
         "params_macro": params_macro,
     }
 
-def gerar_excel_atualizado_bytes(fonte_original, nova_opcao: str, novo_capital: float, nova_data_str: str, df_editado: pd.DataFrame) -> bytes:
+def gerar_excel_atualizado_bytes(fonte_original, nova_opcao: str, novo_capital: float, nova_data_aplicacao: str, df_editado: pd.DataFrame) -> bytes:
     if isinstance(fonte_original, io.BytesIO):
         fonte_original.seek(0)
     wb = openpyxl.load_workbook(fonte_original)
     ws = wb["Carteira_Unificada"]
     ws["B4"] = nova_opcao
     ws["E4"] = float(novo_capital)
-    ws["H4"] = nova_data_str
+    ws["H4"] = nova_data_aplicacao
     for i, (_, row) in enumerate(df_editado.iterrows(), start=7):
         if i > 13:
             break
-        ws[f"C{i}"] = str(row.get("Data_Compra", nova_data_str))[:10]
+        dt_linha = str(row.get("Data_Compra", nova_data_aplicacao))[:10]
+        ws[f"C{i}"] = dt_linha if dt_linha else nova_data_aplicacao
         ws[f"D{i}"] = float(row.get("Preco_Compra_RS", 0.0))
     buf = io.BytesIO()
     wb.save(buf)
@@ -123,11 +133,11 @@ def gerar_excel_atualizado_bytes(fonte_original, nova_opcao: str, novo_capital: 
     return buf.getvalue()
 
 @st.cache_data(ttl=600)
-def buscar_cotacao_e_proventos_periodo(ticker: str, data_inicio_str: str):
+def buscar_cotacao_e_proventos_periodo(ticker: str, data_aplicacao_str: str):
     """Busca cotação na data da aplicação (pregão mais próximo), cotação na data corrente e proventos no período."""
     try:
-        dt_ini = pd.to_datetime(data_inicio_str)
-        dt_busca_ini = (dt_ini - pd.Timedelta(days=7)).strftime("%Y-%m-%d")
+        dt_ini = pd.to_datetime(data_aplicacao_str)
+        dt_busca_ini = (dt_ini - pd.Timedelta(days=10)).strftime("%Y-%m-%d")
         hist = yf.download(ticker, start=dt_busca_ini, progress=False, auto_adjust=False)
         if hist is None or hist.empty:
             return None, None, 0.0, None
@@ -135,12 +145,13 @@ def buscar_cotacao_e_proventos_periodo(ticker: str, data_inicio_str: str):
         if close_s.empty:
             return None, None, 0.0, None
         close_s.index = close_s.index.tz_localize(None) if close_s.index.tz is not None else close_s.index
+
         pos_ou_igual = close_s[close_s.index >= dt_ini]
         if not pos_ou_igual.empty:
-            preco_compra = float(pos_ou_igual.iloc[0])
+            preco_aplicacao = float(pos_ou_igual.iloc[0])
             dt_pregao = pos_ou_igual.index[0].strftime("%Y-%m-%d")
         else:
-            preco_compra = float(close_s.iloc[0])
+            preco_aplicacao = float(close_s.iloc[0])
             dt_pregao = close_s.index[0].strftime("%Y-%m-%d")
         preco_atual = float(close_s.iloc[-1])
 
@@ -153,7 +164,7 @@ def buscar_cotacao_e_proventos_periodo(ticker: str, data_inicio_str: str):
         except Exception:
             proventos_cota = 0.0
 
-        return preco_compra, preco_atual, proventos_cota, dt_pregao
+        return preco_aplicacao, preco_atual, proventos_cota, dt_pregao
     except Exception:
         return None, None, 0.0, None
 
@@ -163,11 +174,8 @@ def buscar_cotacao_e_proventos_periodo(ticker: str, data_inicio_str: str):
 st.title("📊 Super Analisador Integrado — Ações, FIIs e Renda Fixa")
 st.markdown(
     "Painel unificado para consultar a carteira salva em **`carteira_unificada_Investimentos.xlsx`** (GitHub ou local), "
-    "calcular o **Retorno dos Investimentos** até a **data corrente** com base na data e valores de compra, "
-    "além de avaliar **Ações** (fundamentos + técnica + risco), **Fundos Imobiliários (FIIs)** e **Renda Fixa**, "
-    "com sugestão de alocação por perfil (**Conservador**, **Moderado** ou **Agressivo**), **Lucro Bruto**, "
-    "**Descontos com Impostos na Venda Hoje**, **Lucro Líquido (Venda Hoje)**, **Lucro Líquido após Impostos** "
-    "e **evolução histórica de 30 a 360 dias**."
+    "calcular o **Retorno dos Investimentos** até a **data corrente** a partir da **Data da Aplicação** registrada na planilha, "
+    "além de avaliar **Ações**, **Fundos Imobiliários (FIIs)** e **Renda Fixa**."
 )
 
 st.sidebar.header("⚙️ Parâmetros Gerais e Macro")
@@ -697,7 +705,7 @@ with aba_busca:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Opção Salva", dados_planilha["opcao_escolhida"])
         c2.metric("Capital na Planilha", f"R$ {dados_planilha['capital_planilha']:,.2f}")
-        c3.metric("Data da Aplicação", dados_planilha["data_aplicacao"])
+        c3.metric("Data da Aplicação (Data Compra)", dados_planilha["data_aplicacao"])
         c4.metric("Ativos Cadastrados", f"{len(dados_planilha['df_carteira'])} ativos")
 
         st.divider()
@@ -724,15 +732,19 @@ with aba_busca:
             row_f = df_b[df_b["Ativo"].astype(str) == ativo_ficha].iloc[0]
             f1, f2, f3, f4 = st.columns(4)
             f1.metric("Classe", str(row_f.get("Classe", "-")))
-            f2.metric("Data Compra", str(row_f.get("Data_Compra", "-"))[:10])
-            f3.metric("Preço Compra (R$)", f"R$ {float(row_f.get('Preco_Compra_RS', 0.0)):,.2f}")
+            f2.metric("Data da Aplicação", str(row_f.get("Data_Compra", dados_planilha["data_aplicacao"]))[:10])
+            f3.metric("Preço na Data (R$)", f"R$ {float(row_f.get('Preco_Compra_RS', 0.0)):,.2f}")
             f4.metric("Alocado Efetivo (R$)", f"R$ {float(row_f.get('Alocado_Efetivo (R$)', 0.0)):,.2f}")
 
 # ------------------------------------------
-# ABA 2: RETORNO DOS INVESTIMENTOS (ATÉ A DATA CORRENTE)
+# ABA 2: RETORNO DOS INVESTIMENTOS (DATA DA APLICAÇÃO -> DATA CORRENTE)
 # ------------------------------------------
 with aba_retorno:
     st.subheader(f"💰 Retorno dos Investimentos até Hoje ({date.today().strftime('%d/%m/%Y')})")
+    st.caption(
+        "Considera a **Data da Compra** registrada na planilha Excel como a **Data da Aplicação**, "
+        "consulta os valores históricos das ações/FIIs nessa data e calcula quanto você teria na **data corrente**."
+    )
     if dados_planilha is None:
         st.info("Conecte a planilha `carteira_unificada_Investimentos.xlsx` na barra lateral para calcular quanto você teria na data corrente.")
     else:
@@ -744,7 +756,17 @@ with aba_retorno:
         with col_e1:
             estrategia_ret = st.selectbox("Estratégia de Distribuição:", options=opcoes_est, index=idx_est, key="ret_est")
         with col_e2:
-            data_base_ret = st.text_input("Data Base da Aplicação (AAAA-MM-DD):", value=dados_planilha["data_aplicacao"], key="ret_dt")
+            usar_data_linha = st.checkbox(
+                "Usar Data_Compra individual de cada linha da planilha (como Data da Aplicação)",
+                value=True,
+                help="Se desmarcado, aplica a mesma Data da Aplicação geral (H4) para todos os ativos."
+            )
+            data_aplic_geral = st.text_input(
+                "Data da Aplicação Geral (AAAA-MM-DD):",
+                value=dados_planilha["data_aplicacao"],
+                key="ret_dt",
+                disabled=usar_data_linha
+            )
         with col_e3:
             st.metric("Data Corrente (Execução)", date.today().strftime("%d/%m/%Y"))
 
@@ -762,35 +784,43 @@ with aba_retorno:
         df_base["Alocado_Ret (R$)"] = (capital_total * (df_base["Peso_Ret (%)"] / 100.0)).round(2)
 
         linhas_ret = []
-        with st.spinner("Consultando cotações na data de compra e hoje..."):
+        with st.spinner("Consultando cotações na Data da Aplicação e valores na data corrente..."):
             for _, r in df_base.iterrows():
                 classe = str(r["Classe"]).strip()
                 ativo = str(r["Ativo"]).strip()
-                dt_c = str(r.get("Data_Compra", data_base_ret))[:10]
+                dt_aplic_ativo = str(r.get("Data_Compra", dados_planilha["data_aplicacao"]))[:10] if usar_data_linha else data_aplic_geral.strip()
                 pr_plan = float(r.get("Preco_Compra_RS", 0.0) or 0.0)
                 val_inv = float(r["Alocado_Ret (R$)"])
                 peso_v = float(r["Peso_Ret (%)"])
 
-                dt_ini = pd.to_datetime(dt_c, errors="coerce")
+                dt_ini = pd.to_datetime(dt_aplic_ativo, errors="coerce")
                 if pd.isna(dt_ini):
-                    dt_ini = pd.to_datetime(data_base_ret, errors="coerce")
+                    dt_ini = pd.to_datetime(dados_planilha["data_aplicacao"], errors="coerce")
                 dias = max(1, (pd.Timestamp(date.today()) - dt_ini).days)
 
                 if classe in ("Ação", "FII"):
                     p_c, p_h, prov, dt_p = buscar_cotacao_e_proventos_periodo(ativo, dt_ini.strftime("%Y-%m-%d"))
-                    pr_compra = p_c if (p_c is not None and p_c > 0) else pr_plan
-                    pr_hoje = p_h if (p_h is not None and p_h > 0) else pr_compra
-                    qtd = int(val_inv // pr_compra) if pr_compra > 0 else 0
-                    troco = round(val_inv - (qtd * pr_compra), 2)
+                    pr_aplicacao = p_c if (p_c is not None and p_c > 0) else pr_plan
+                    pr_hoje = p_h if (p_h is not None and p_h > 0) else pr_aplicacao
+                    qtd = int(val_inv // pr_aplicacao) if pr_aplicacao > 0 else 0
+                    troco = round(val_inv - (qtd * pr_aplicacao), 2)
                     val_hoje = round((qtd * pr_hoje) + (qtd * prov) + troco, 2)
                     lucro = round(val_hoje - val_inv, 2)
                     ret_pct = round(((val_hoje / val_inv) - 1.0) * 100.0, 2) if val_inv > 0 else 0.0
                     linhas_ret.append({
-                        "Classe": classe, "Ativo": ativo, "Data Compra": dt_p or dt_ini.strftime("%Y-%m-%d"),
-                        "Dias": dias, "Peso (%)": peso_v, "Investido (R$)": val_inv, "Qtd.": qtd,
-                        "Preço Compra (R$)": round(pr_compra, 2), "Preço Hoje (R$)": round(pr_hoje, 2),
-                        "Proventos (R$)": round(qtd * prov, 2), "Valor Hoje (R$)": val_hoje,
-                        "Lucro / Prejuízo (R$)": lucro, "Retorno (%)": ret_pct
+                        "Classe": classe,
+                        "Ativo": ativo,
+                        "Data Aplicação": dt_p or dt_ini.strftime("%Y-%m-%d"),
+                        "Dias Corridos": dias,
+                        "Peso (%)": peso_v,
+                        "Valor Aplicado (R$)": val_inv,
+                        "Qtd.": qtd,
+                        "Preço na Aplicação (R$)": round(pr_aplicacao, 2),
+                        "Preço Hoje (R$)": round(pr_hoje, 2),
+                        "Proventos no Período (R$)": round(qtd * prov, 2),
+                        "Valor Hoje (R$)": val_hoje,
+                        "Lucro / Prejuízo (R$)": lucro,
+                        "Retorno (%)": ret_pct
                     })
                 else:
                     fator = (1.0 + taxa_selic_cdi / 100.0) ** (dias / 365.0)
@@ -799,40 +829,56 @@ with aba_retorno:
                     lucro = round(liq_rf, 2)
                     ret_pct = round(((val_hoje / val_inv) - 1.0) * 100.0, 2) if val_inv > 0 else 0.0
                     linhas_ret.append({
-                        "Classe": classe, "Ativo": ativo, "Data Compra": dt_ini.strftime("%Y-%m-%d"),
-                        "Dias": dias, "Peso (%)": peso_v, "Investido (R$)": val_inv, "Qtd.": 1,
-                        "Preço Compra (R$)": val_inv, "Preço Hoje (R$)": val_hoje,
-                        "Proventos (R$)": 0.0, "Valor Hoje (R$)": val_hoje,
-                        "Lucro / Prejuízo (R$)": lucro, "Retorno (%)": ret_pct
+                        "Classe": classe,
+                        "Ativo": ativo,
+                        "Data Aplicação": dt_ini.strftime("%Y-%m-%d"),
+                        "Dias Corridos": dias,
+                        "Peso (%)": peso_v,
+                        "Valor Aplicado (R$)": val_inv,
+                        "Qtd.": 1,
+                        "Preço na Aplicação (R$)": val_inv,
+                        "Preço Hoje (R$)": val_hoje,
+                        "Proventos no Período (R$)": 0.0,
+                        "Valor Hoje (R$)": val_hoje,
+                        "Lucro / Prejuízo (R$)": lucro,
+                        "Retorno (%)": ret_pct
                     })
 
         df_ret = pd.DataFrame(linhas_ret)
-        tot_inv = float(df_ret["Investido (R$)"].sum())
+        tot_inv = float(df_ret["Valor Aplicado (R$)"].sum())
         tot_hoje = float(df_ret["Valor Hoje (R$)"].sum())
         tot_lucro = float(df_ret["Lucro / Prejuízo (R$)"].sum())
+        tot_prov = float(df_ret["Proventos no Período (R$)"].sum())
         tot_pct = ((tot_hoje / tot_inv) - 1.0) * 100.0 if tot_inv > 0 else 0.0
 
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Total Investido", f"R$ {tot_inv:,.2f}")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Capital Total Aplicado", f"R$ {tot_inv:,.2f}")
         m2.metric("Valor Hoje (Data Corrente)", f"R$ {tot_hoje:,.2f}", delta=f"{tot_pct:+.2f}%")
         m3.metric("Lucro / Prejuízo Hoje", f"R$ {tot_lucro:,.2f}")
+        m4.metric("Proventos Acumulados", f"R$ {tot_prov:,.2f}")
+
         st.dataframe(df_ret, use_container_width=True, hide_index=True)
+        st.bar_chart(df_ret.set_index("Ativo")[["Valor Aplicado (R$)", "Valor Hoje (R$)"]], use_container_width=True)
 
 # ------------------------------------------
 # ABA 3: CARTEIRA UNIFICADA
 # ------------------------------------------
 with aba_resumo:
     if dados_planilha is not None:
-        with st.expander("📂 Carteira Salva na Planilha (`carteira_unificada_Investimentos.xlsx`) — Editar e Baixar", expanded=False):
+        with st.expander("📂 Carteira Salva na Planilha (`carteira_unificada_Investimentos.xlsx`) — Editar Datas de Aplicação e Baixar", expanded=False):
             df_ed = st.data_editor(
                 dados_planilha["df_carteira"][["Classe", "Ativo", "Data_Compra", "Preco_Compra_RS", "Score", "Peso_Efetivo (%)", "Alocado_Efetivo (R$)", "Detalhe / Qtd."]],
-                use_container_width=True, hide_index=True, key="editor_planilha_unif"
+                use_container_width=True, hide_index=True, key="editor_planilha_unif",
+                column_config={
+                    "Data_Compra": st.column_config.TextColumn("Data_Compra (Data da Aplicação)")
+                }
             )
+            dt_geral_salvar = str(df_ed["Data_Compra"].iloc[0])[:10] if not df_ed.empty else dados_planilha["data_aplicacao"]
             b_xlsx = gerar_excel_atualizado_bytes(
                 fonte_excel,
                 dados_planilha["opcao_escolhida"],
                 capital_total,
-                dados_planilha["data_aplicacao"],
+                dt_geral_salvar,
                 df_ed
             )
             st.download_button(
