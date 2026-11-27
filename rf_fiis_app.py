@@ -1,35 +1,181 @@
+import os
+from pathlib import Path
+from datetime import datetime, date
 import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import openpyxl
 
-st.set_page_config(page_title="Analisador Renda Fixa & FIIs", layout="wide")
+st.set_page_config(page_title="Carteira Unificada & Retorno dos Investimentos", layout="wide")
 
-st.title("🏛️ Analisador de Renda Fixa e Fundos Imobiliários (FIIs)")
+# Caminho padrão configurado no Windows + fallback na pasta local do script
+CAMINHO_WINDOWS = Path(r"C:\Users\Gil\OneDrive\1.00-Ideias\aplicação em ações\carteira_unificada_Investimentos.xlsx")
+CAMINHO_LOCAL = Path(__file__).parent / "carteira_unificada_Investimentos.xlsx"
+
+def resolver_caminho_planilha(caminho_custom: str = "") -> Path | None:
+    if caminho_custom and Path(caminho_custom).exists():
+        return Path(caminho_custom)
+    if CAMINHO_WINDOWS.exists():
+        return CAMINHO_WINDOWS
+    if CAMINHO_LOCAL.exists():
+        return CAMINHO_LOCAL
+    return None
+
+def carregar_dados_planilha(caminho_xlsx: Path):
+    wb = openpyxl.load_workbook(caminho_xlsx, data_only=True)
+    ws = wb["Carteira_Unificada"]
+
+    opcao_escolhida = str(ws["B4"].value or "Divisão igualitária").strip()
+    capital_planilha = float(ws["E4"].value or 100000.0)
+    data_aplicacao_raw = ws["H4"].value
+
+    # Ler tabela principal (cabeçalho na linha 6 -> header=5)
+    df_cart = pd.read_excel(caminho_xlsx, sheet_name="Carteira_Unificada", header=5)
+    df_cart = df_cart[df_cart["Ativo"].notna()].copy()
+    df_cart = df_cart[~df_cart["Classe"].astype(str).str.upper().eq("TOTAL")].copy()
+
+    # Ler percentuais personalizados
+    df_pers = pd.read_excel(caminho_xlsx, sheet_name="Personalizados", header=2)
+    df_pers = df_pers[df_pers["Ativo"].notna()].copy()
+    df_pers = df_pers[~df_pers["Classe"].astype(str).str.upper().str.startswith("TOTAL")].copy()
+
+    # Calcular pesos efetivos conforme a opção escolhida na planilha
+    n_ativos = len(df_cart)
+    if opcao_escolhida == "Divisão igualitária" and n_ativos > 0:
+        df_cart["Peso_Efetivo (%)"] = round(100.0 / n_ativos, 2)
+    elif opcao_escolhida in ("Conservador", "Moderado", "Agressivo"):
+        col_perfil = f"{opcao_escolhida} (%)"
+        mapa_pesos = dict(zip(df_pers["Ativo"].astype(str).str.strip(), pd.to_numeric(df_pers[col_perfil], errors="coerce").fillna(0.0)))
+        df_cart["Peso_Efetivo (%)"] = df_cart["Ativo"].astype(str).str.strip().map(mapa_pesos).fillna(0.0)
+    else:
+        df_cart["Peso_Efetivo (%)"] = pd.to_numeric(df_cart["Peso (%)"], errors="coerce").fillna(round(100.0 / max(n_ativos, 1), 2))
+
+    df_cart["Alocado_Efetivo (R$)"] = (capital_planilha * (df_cart["Peso_Efetivo (%)"] / 100.0)).round(2)
+
+    # Ler parâmetros macro se existir a aba
+    params_macro = {}
+    if "Parametros_Macro" in wb.sheetnames:
+        df_pm = pd.read_excel(caminho_xlsx, sheet_name="Parametros_Macro", header=2)
+        for _, r in df_pm.iterrows():
+            if pd.notna(r.get("Parâmetro")) and pd.notna(r.get("Valor (Editável)")):
+                params_macro[str(r["Parâmetro"]).strip()] = float(r["Valor (Editável)"])
+
+    return {
+        "opcao_escolhida": opcao_escolhida,
+        "capital_planilha": capital_planilha,
+        "data_aplicacao": str(data_aplicacao_raw)[:10] if data_aplicacao_raw else "2026-01-02",
+        "df_carteira": df_cart,
+        "df_personalizados": df_pers,
+        "params_macro": params_macro,
+    }
+
+def salvar_alteracoes_planilha(caminho_xlsx: Path, nova_opcao: str, novo_capital: float, nova_data_str: str, df_editado: pd.DataFrame):
+    wb = openpyxl.load_workbook(caminho_xlsx)
+    ws = wb["Carteira_Unificada"]
+    ws["B4"] = nova_opcao
+    ws["E4"] = float(novo_capital)
+    ws["H4"] = nova_data_str
+
+    for i, (_, row) in enumerate(df_editado.iterrows(), start=7):
+        if i > 13:
+            break
+        ws[f"C{i}"] = str(row.get("Data_Compra", nova_data_str))[:10]
+        ws[f"D{i}"] = float(row.get("Preco_Compra_RS", 0.0))
+
+    wb.save(caminho_xlsx)
+
+@st.cache_data(ttl=600)
+def buscar_cotacao_e_proventos_periodo(ticker: str, data_inicio_str: str):
+    """Busca cotação histórica na data de compra (ou pregão útil mais próximo), cotação atual e proventos no período."""
+    try:
+        dt_ini = pd.to_datetime(data_inicio_str)
+        dt_busca_ini = (dt_ini - pd.Timedelta(days=7)).strftime("%Y-%m-%d")
+        hist = yf.download(ticker, start=dt_busca_ini, progress=False, auto_adjust=False)
+        if hist is None or hist.empty:
+            return None, None, 0.0, None
+
+        if isinstance(hist.columns, pd.MultiIndex):
+            close_s = hist["Close"][ticker].dropna()
+        else:
+            close_s = hist["Close"].dropna()
+
+        if close_s.empty:
+            return None, None, 0.0, None
+
+        # Remove timezone para comparação segura
+        idx_naive = close_s.index.tz_localize(None) if close_s.index.tz is not None else close_s.index
+        close_s.index = idx_naive
+
+        # Cotação na data de compra ou pregão imediatamente posterior/anterior
+        pos_ou_igual = close_s[close_s.index >= dt_ini]
+        if not pos_ou_igual.empty:
+            preco_data_compra = float(pos_ou_igual.iloc[0])
+            data_pregao_compra = pos_ou_igual.index[0].strftime("%Y-%m-%d")
+        else:
+            preco_data_compra = float(close_s.iloc[0])
+            data_pregao_compra = close_s.index[0].strftime("%Y-%m-%d")
+
+        preco_atual = float(close_s.iloc[-1])
+
+        # Proventos (dividendos/rendimentos) pagos desde a data de compra
+        proventos_por_cota = 0.0
+        try:
+            tk_obj = yf.Ticker(ticker)
+            divs = tk_obj.dividends
+            if divs is not None and not divs.empty:
+                divs_idx = divs.index.tz_localize(None) if divs.index.tz is not None else divs.index
+                divs.index = divs_idx
+                proventos_por_cota = float(divs[divs.index >= dt_ini].sum())
+        except Exception:
+            proventos_por_cota = 0.0
+
+        return preco_data_compra, preco_atual, proventos_por_cota, data_pregao_compra
+    except Exception:
+        return None, None, 0.0, None
+
+# ==========================================
+# TÍTULO E CONFIGURAÇÃO DA PLANILHA BASE
+# ==========================================
+st.title("🏛️ Painel Unificado de Investimentos — Ações, FIIs e Renda Fixa")
 st.markdown(
-    "Avalia um universo de **FIIs** (via dados de mercado e proventos) e **opções de Renda Fixa** "
-    "(cenário de referência/taxas editáveis), destacando **as 2 melhores opções de Renda Fixa** "
-    "e **as 2 melhores opções de FIIs**, com **Lucro Líquido após Impostos (R$)** e **Alíquota IR (%)** "
-    "para você escolher e alocar seu capital — pronto para rodar direto do GitHub no Streamlit."
+    "Consulta a base salva em **`carteira_unificada_Investimentos.xlsx`**, calcula a evolução real dos ativos "
+    "desde a **data da aplicação até a data corrente** na aba **Retorno dos Investimentos** e mantém "
+    "as demais abas de análise e alocação."
 )
 
-# ==========================================
-# 1. PARÂMETROS NA BARRA LATERAL
-# ==========================================
-st.sidebar.header("⚙️ Capital, Prazo e Cenário Macro")
+st.sidebar.header("📂 Fonte da Carteira Salva (Excel)")
+caminho_informado = st.sidebar.text_input(
+    "Caminho da planilha Excel:",
+    value=str(CAMINHO_WINDOWS)
+)
 
+arquivo_excel = resolver_caminho_planilha(caminho_informado)
+
+if arquivo_excel is None:
+    st.warning(
+        f"⚠️ Planilha não encontrada em `{caminho_informado}` nem na pasta local. "
+        "Coloque o arquivo `carteira_unificada_Investimentos.xlsx` na pasta indicada para carregar sua carteira salva."
+    )
+    st.stop()
+
+st.sidebar.success(f"Planilha conectada: `{arquivo_excel.name}`")
+dados_planilha = carregar_dados_planilha(arquivo_excel)
+
+# Parâmetros macro na barra lateral (inicializados a partir da planilha)
+st.sidebar.header("⚙️ Capital, Prazo e Cenário Macro")
 capital_total = st.sidebar.number_input(
     "Capital Total Disponível (R$)",
     min_value=100.0,
-    value=10000.0,
+    value=float(dados_planilha["capital_planilha"]),
     step=500.0
 )
 
 horizonte_meses = st.sidebar.slider(
-    "Horizonte da Simulação (meses)",
+    "Horizonte da Simulação Futura (meses)",
     min_value=1,
     max_value=60,
-    value=12,
+    value=int(dados_planilha["params_macro"].get("Horizonte da Simulação (meses)", 12)),
     step=1
 )
 
@@ -37,7 +183,7 @@ taxa_selic_cdi = st.sidebar.number_input(
     "Taxa SELIC / CDI de Referência (% a.a.)",
     min_value=1.0,
     max_value=30.0,
-    value=13.25,
+    value=float(dados_planilha["params_macro"].get("Taxa SELIC / CDI de Referência (% a.a.)", 13.25)),
     step=0.25
 )
 
@@ -45,40 +191,20 @@ ipca_projetado = st.sidebar.number_input(
     "IPCA Projetado (% a.a.)",
     min_value=0.5,
     max_value=20.0,
-    value=4.5,
+    value=float(dados_planilha["params_macro"].get("IPCA Projetado (% a.a.)", 4.50)),
     step=0.25
 )
 
-st.sidebar.subheader("🧾 Parâmetros Fiscais (IR)")
 ir_ganho_capital_fii = st.sidebar.number_input(
     "IR sobre Ganho de Capital na Venda de FII (%)",
     min_value=0.0,
     max_value=35.0,
-    value=20.0,
-    step=1.0,
-    help="Proventos (rendimentos) de FIIs elegíveis costumam ser isentos de IR para PF; ganho de capital na venda com lucro tem alíquota aplicável."
+    value=float(dados_planilha["params_macro"].get("IR Ganho de Capital FII (%)", 20.0)),
+    step=1.0
 )
-
-st.sidebar.subheader("📌 Universos de Avaliação")
-fiis_padrao = (
-    "KNCR11.SA, XPML11.SA, HGLG11.SA, XPLG11.SA, MXRF11.SA, "
-    "BPML11.SA, VISC11.SA, RECR11.SA, HGBS11.SA, CPTS11.SA"
-)
-fiis_input = st.sidebar.text_area("FIIs (separados por vírgula)", value=fiis_padrao, height=75)
-lista_fiis = list(dict.fromkeys([t.strip().upper() for t in fiis_input.split(",") if t.strip()]))
-
-st.sidebar.markdown("**Opções de Renda Fixa (editáveis — Prazo_Dias e Isento_IR):**")
-rf_default = pd.DataFrame([
-    {"Produto": "Tesouro Selic", "Tipo": "Pós-fixado (SELIC)", "Taxa_aa": round(taxa_selic_cdi, 2), "Isento_IR": False, "Prazo_Dias": 365, "Liquidez_Dias": 1, "Risco_Score": 98.0},
-    {"Produto": "CDB Liquidez Diária 100% CDI", "Tipo": "Pós-fixado (CDI)", "Taxa_aa": round(taxa_selic_cdi, 2), "Isento_IR": False, "Prazo_Dias": 365, "Liquidez_Dias": 1, "Risco_Score": 82.0},
-    {"Produto": "LCI / LCA Prefixada ou Pós", "Tipo": "Isento IR", "Taxa_aa": round(taxa_selic_cdi * 0.86, 2), "Isento_IR": True, "Prazo_Dias": 365, "Liquidez_Dias": 90, "Risco_Score": 80.0},
-    {"Produto": "Tesouro IPCA+ (Juro Real)", "Tipo": "IPCA + Juros", "Taxa_aa": round(ipca_projetado + 6.5, 2), "Isento_IR": False, "Prazo_Dias": 730, "Liquidez_Dias": 2, "Risco_Score": 90.0},
-    {"Produto": "CDB Médio Prazo (115% CDI)", "Tipo": "Pós-fixado (CDI)", "Taxa_aa": round(taxa_selic_cdi * 1.15, 2), "Isento_IR": False, "Prazo_Dias": 365, "Liquidez_Dias": 365, "Risco_Score": 76.0},
-])
-df_rf_input = st.sidebar.data_editor(rf_default, num_rows="dynamic", use_container_width=True, key="rf_editor")
 
 # ==========================================
-# 2. FUNÇÕES DE IMPOSTO E AVALIAÇÃO RF (TOP 2)
+# FUNÇÕES DE AVALIAÇÃO RF E FIIs (MANTIDAS)
 # ==========================================
 def aliquota_ir_regressiva(dias):
     if dias <= 180:
@@ -139,9 +265,6 @@ def avaliar_renda_fixa(df_rf, selic_ref, ipca_ref, cap_ref, meses_ref):
     df.insert(0, "Rank", df.index + 1)
     return df
 
-# ==========================================
-# 3. AVALIAÇÃO DE FIIs (TOP 2)
-# ==========================================
 @st.cache_data(ttl=900)
 def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc_fii):
     if not tickers:
@@ -190,20 +313,14 @@ def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc_fii):
             except Exception:
                 pass
 
-            # Estimativa de lucro líquido após impostos no horizonte (proventos isentos + ganho de capital líquido)
             dy_efetivo = dy_12m_pct if not np.isnan(dy_12m_pct) else 8.0
             rend_isentos_rs = cap_ref * ((1.0 + dy_efetivo / 100.0) ** (meses_ref / 12.0) - 1.0)
-            # Projeção conservadora de variação de cota baseada no retorno anualizado moderado
             ret_anual_hist = float(np.clip(ret_diario.tail(126).mean() * 252, -0.10, 0.18)) if len(ret_diario) >= 40 else 0.04
             ganho_cota_bruto = cap_ref * ((1.0 + ret_anual_hist) ** (meses_ref / 12.0) - 1.0)
             ir_cota_rs = max(0.0, ganho_cota_bruto) * (aliq_gc_fii / 100.0)
             lucro_liq_fii_rs = rend_isentos_rs + (ganho_cota_bruto - ir_cota_rs)
 
-            if not np.isnan(dy_12m_pct):
-                score_renda = float(np.clip(((dy_12m_pct - 4.0) / 10.0) * 100.0, 0.0, 100.0))
-            else:
-                score_renda = 60.0
-
+            score_renda = float(np.clip(((dy_12m_pct - 4.0) / 10.0) * 100.0, 0.0, 100.0)) if not np.isnan(dy_12m_pct) else 60.0
             score_estab = float(np.clip(100.0 - max(0.0, (vol_anual - 12.0) * 2.5) - abs(min(0.0, dd_180d)) * 1.2, 0.0, 100.0))
             score_tend = 0.0
             if preco_atual >= mm21 * 0.98:
@@ -213,7 +330,6 @@ def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc_fii):
             if -18.0 <= dd_180d <= -2.0:
                 score_tend += 20.0
             score_tend = float(np.clip(score_tend, 0.0, 100.0))
-
             score_final = 0.40 * score_renda + 0.30 * score_estab + 0.30 * score_tend
 
             registros.append({
@@ -239,162 +355,209 @@ def avaliar_fiis(tickers, cap_ref, meses_ref, aliq_gc_fii):
     return df, df_precos
 
 # ==========================================
-# 4. EXIBIÇÃO DO RANKING E SUGESTÃO (2 RF + 2 FIIs)
+# ABAS PRINCIPAIS DO PAINEL
 # ==========================================
-df_rf_rank = avaliar_renda_fixa(df_rf_input, taxa_selic_cdi, ipca_projetado, capital_total, horizonte_meses)
-with st.spinner("Avaliando FIIs e calculando rankings de Renda Fixa e FIIs..."):
-    df_fii_rank, df_fii_precos = avaliar_fiis(tuple(lista_fiis), capital_total, horizonte_meses, ir_ganho_capital_fii)
+aba_retorno, aba_carteira, aba_pers, aba_fiis_rf, aba_evolucao = st.tabs([
+    "💰 Retorno dos Investimentos",
+    "🎯 Carteira Unificada",
+    "⚖️ Percentuais Personalizados",
+    "🏢 FIIs & Renda Fixa (Análise)",
+    "📈 Evolução Histórica (30 a 360d)"
+])
 
-col_top1, col_top2 = st.columns(2)
-with col_top1:
-    st.subheader("🏦 Top 2 — Renda Fixa")
-    if not df_rf_rank.empty:
-        top2_rf = df_rf_rank.head(2)
-        st.dataframe(top2_rf, use_container_width=True, hide_index=True)
-        with st.expander("Ver todas as opções de Renda Fixa avaliadas"):
-            st.dataframe(df_rf_rank, use_container_width=True, hide_index=True)
-    else:
-        top2_rf = pd.DataFrame()
-        st.info("Adicione opções de Renda Fixa na barra lateral.")
-
-with col_top2:
-    st.subheader("🏢 Top 2 — Fundos Imobiliários (FIIs)")
-    if not df_fii_rank.empty:
-        top2_fii = df_fii_rank.head(2)
-        st.dataframe(top2_fii, use_container_width=True, hide_index=True)
-        with st.expander("Ver todos os FIIs avaliados"):
-            st.dataframe(df_fii_rank, use_container_width=True, hide_index=True)
-    else:
-        top2_fii = pd.DataFrame()
-        st.info("Não foi possível carregar dados de FIIs no momento.")
-
-st.divider()
-
-# ==========================================
-# 5. ESCOLHA E ALOCAÇÃO (ATÉ 2 RF + ATÉ 2 FIIs)
-# ==========================================
-st.subheader("🎯 Escolha Suas Opções para Investir")
-c_sel1, c_sel2 = st.columns(2)
-
-opcoes_rf_all = df_rf_rank["Produto"].tolist() if not df_rf_rank.empty else []
-default_rf = top2_rf["Produto"].tolist() if not top2_rf.empty else []
-
-opcoes_fii_all = df_fii_rank["Ticker"].tolist() if not df_fii_rank.empty else []
-default_fii = top2_fii["Ticker"].tolist() if not top2_fii.empty else []
-
-with c_sel1:
-    rf_escolhidas = st.multiselect(
-        "Renda Fixa (até 2 opções):",
-        options=opcoes_rf_all,
-        default=default_rf,
-        max_selections=2
+# ------------------------------------------
+# ABA 1: RETORNO DOS INVESTIMENTOS (DATA DE COMPRA -> DATA CORRENTE)
+# ------------------------------------------
+with aba_retorno:
+    data_hoje_str = date.today().strftime("%Y-%m-%d")
+    st.subheader(f"💰 Retorno Real dos Investimentos até Hoje ({date.today().strftime('%d/%m/%Y')})")
+    st.caption(
+        "Lê os ativos salvos na planilha `carteira_unificada_Investimentos.xlsx`, consulta a cotação na data da compra "
+        "e a cotação atual de mercado (`yfinance`) para calcular quanto você teria hoje."
     )
 
-with c_sel2:
-    fiis_escolhidos = st.multiselect(
-        "Fundos Imobiliários (até 2 opções):",
-        options=opcoes_fii_all,
-        default=default_fii,
-        max_selections=2
+    df_base = dados_planilha["df_carteira"].copy()
+    opcoes_estrategia = ["Conservador", "Moderado", "Agressivo", "Divisão igualitária"]
+    idx_padrao = opcoes_estrategia.index(dados_planilha["opcao_escolhida"]) if dados_planilha["opcao_escolhida"] in opcoes_estrategia else 3
+
+    c_cfg1, c_cfg2, c_cfg3 = st.columns(3)
+    with c_cfg1:
+        estrategia_ativa = st.selectbox("Estratégia de Distribuição:", options=opcoes_estrategia, index=idx_padrao)
+    with c_cfg2:
+        data_aplic_input = st.text_input("Data Base da Aplicação (AAAA-MM-DD):", value=dados_planilha["data_aplicacao"])
+    with c_cfg3:
+        st.metric("Data Corrente da Consulta", date.today().strftime("%d/%m/%Y"))
+
+    # Recalcula pesos se o usuário trocar o seletor na tela
+    df_pers_ref = dados_planilha["df_personalizados"]
+    n_at = len(df_base)
+    if estrategia_ativa == "Divisão igualitária" and n_at > 0:
+        df_base["Peso_Calculado (%)"] = round(100.0 / n_at, 2)
+    else:
+        col_p = f"{estrategia_ativa} (%)"
+        mapa_p = dict(zip(df_pers_ref["Ativo"].astype(str).str.strip(), pd.to_numeric(df_pers_ref[col_p], errors="coerce").fillna(0.0)))
+        df_base["Peso_Calculado (%)"] = df_base["Ativo"].astype(str).str.strip().map(mapa_p).fillna(0.0)
+
+    df_base["Valor_Investido (R$)"] = (capital_total * (df_base["Peso_Calculado (%)"] / 100.0)).round(2)
+
+    linhas_retorno = []
+    with st.spinner("Consultando cotações históricas na data da aplicação e preços atuais..."):
+        for _, row in df_base.iterrows():
+            classe = str(row["Classe"]).strip()
+            ativo = str(row["Ativo"]).strip()
+            dt_compra_row = str(row.get("Data_Compra", data_aplic_input))[:10]
+            preco_planilha = float(row.get("Preco_Compra_RS", 0.0) or 0.0)
+            valor_investido = float(row["Valor_Investido (R$)"])
+            peso_pct = float(row["Peso_Calculado (%)"])
+
+            dt_ini_dt = pd.to_datetime(dt_compra_row, errors="coerce")
+            if pd.isna(dt_ini_dt):
+                dt_ini_dt = pd.to_datetime(data_aplic_input, errors="coerce")
+            dias_corridos = max(1, (pd.Timestamp(date.today()) - dt_ini_dt).days)
+
+            if classe in ("Ação", "FII"):
+                p_hist, p_atual, prov_cota, dt_pregao = buscar_cotacao_e_proventos_periodo(ativo, dt_ini_dt.strftime("%Y-%m-%d"))
+                preco_compra_efetivo = p_hist if (p_hist is not None and p_hist > 0) else preco_planilha
+                preco_atual_efetivo = p_atual if (p_atual is not None and p_atual > 0) else preco_compra_efetivo
+
+                qtd = int(valor_investido // preco_compra_efetivo) if preco_compra_efetivo > 0 else 0
+                capital_efetivo_aplicado = round(qtd * preco_compra_efetivo, 2)
+                troco_caixa = round(valor_investido - capital_efetivo_aplicado, 2)
+
+                valor_posicao_hoje = round(qtd * preco_atual_efetivo, 2)
+                proventos_recebidos = round(qtd * prov_cota, 2)
+                valor_total_hoje = round(valor_posicao_hoje + proventos_recebidos + troco_caixa, 2)
+                lucro_rs = round(valor_total_hoje - valor_investido, 2)
+                rentab_pct = round(((valor_total_hoje / valor_investido) - 1.0) * 100.0, 2) if valor_investido > 0 else 0.0
+
+                linhas_retorno.append({
+                    "Classe": classe,
+                    "Ativo": ativo,
+                    "Data Compra": dt_pregao or dt_ini_dt.strftime("%Y-%m-%d"),
+                    "Dias": dias_corridos,
+                    "Peso (%)": peso_pct,
+                    "Investido (R$)": valor_investido,
+                    "Qtd.": qtd,
+                    "Preço Compra (R$)": round(preco_compra_efetivo, 2),
+                    "Preço Hoje (R$)": round(preco_atual_efetivo, 2),
+                    "Proventos (R$)": proventos_recebidos,
+                    "Valor Hoje (R$)": valor_total_hoje,
+                    "Lucro / Prejuízo (R$)": lucro_rs,
+                    "Retorno (%)": rentab_pct,
+                })
+            else:
+                # Renda Fixa: capitalização proporcional aos dias corridos pela taxa líquida estimada
+                fator_dia = (1.0 + taxa_selic_cdi / 100.0) ** (dias_corridos / 365.0)
+                bruto_rf = valor_investido * (fator_dia - 1.0)
+                aliq_rf = aliquota_ir_regressiva(dias_corridos)
+                liq_rf = bruto_rf * (1.0 - aliq_rf)
+                valor_total_hoje = round(valor_investido + liq_rf, 2)
+                lucro_rs = round(liq_rf, 2)
+                rentab_pct = round(((valor_total_hoje / valor_investido) - 1.0) * 100.0, 2) if valor_investido > 0 else 0.0
+
+                linhas_retorno.append({
+                    "Classe": classe,
+                    "Ativo": ativo,
+                    "Data Compra": dt_ini_dt.strftime("%Y-%m-%d"),
+                    "Dias": dias_corridos,
+                    "Peso (%)": peso_pct,
+                    "Investido (R$)": valor_investido,
+                    "Qtd.": 1,
+                    "Preço Compra (R$)": valor_investido,
+                    "Preço Hoje (R$)": valor_total_hoje,
+                    "Proventos (R$)": 0.0,
+                    "Valor Hoje (R$)": valor_total_hoje,
+                    "Lucro / Prejuízo (R$)": lucro_rs,
+                    "Retorno (%)": rentab_pct,
+                })
+
+    df_retorno = pd.DataFrame(linhas_retorno)
+
+    total_investido = float(df_retorno["Investido (R$)"].sum())
+    total_hoje = float(df_retorno["Valor Hoje (R$)"].sum())
+    total_lucro = float(df_retorno["Lucro / Prejuízo (R$)"].sum())
+    total_proventos = float(df_retorno["Proventos (R$)"].sum())
+    retorno_geral_pct = ((total_hoje / total_investido) - 1.0) * 100.0 if total_investido > 0 else 0.0
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Capital Total Aplicado", f"R$ {total_investido:,.2f}")
+    m2.metric("Patrimônio Atual (Hoje)", f"R$ {total_hoje:,.2f}", delta=f"{retorno_geral_pct:+.2f}%")
+    m3.metric("Lucro / Prejuízo Acumulado", f"R$ {total_lucro:,.2f}")
+    m4.metric("Proventos Acumulados (Ações/FIIs)", f"R$ {total_proventos:,.2f}")
+
+    st.dataframe(df_retorno, use_container_width=True, hide_index=True)
+
+    st.bar_chart(df_retorno.set_index("Ativo")[["Investido (R$)", "Valor Hoje (R$)"]], use_container_width=True)
+
+# ------------------------------------------
+# ABA 2: CARTEIRA UNIFICADA (BASE SALVA E EDIÇÃO)
+# ------------------------------------------
+with aba_carteira:
+    st.subheader("🎯 Carteira Unificada Salva na Planilha")
+    st.caption("Edite as datas ou preços de referência abaixo e clique em salvar para atualizar o arquivo Excel.")
+
+    df_editavel = st.data_editor(
+        dados_planilha["df_carteira"][["Classe", "Ativo", "Data_Compra", "Preco_Compra_RS", "Score", "Peso_Efetivo (%)", "Alocado_Efetivo (R$)", "Detalhe / Qtd."]],
+        use_container_width=True,
+        hide_index=True,
+        key="editor_carteira_salva"
     )
 
-selecao_combinada = [("Renda Fixa", item) for item in rf_escolhidas] + [("FII", item) for item in fiis_escolhidos]
+    if st.button("💾 Salvar Alterações na Planilha Excel"):
+        salvar_alteracoes_planilha(arquivo_excel, estrategia_ativa, capital_total, data_aplic_input, df_editavel)
+        st.success("Planilha `carteira_unificada_Investimentos.xlsx` atualizada com sucesso!")
 
-if selecao_combinada:
-    st.markdown("**Distribuição do Capital (%) entre os itens escolhidos:**")
-    cols_p = st.columns(len(selecao_combinada))
-    peso_padrao = round(100.0 / len(selecao_combinada), 1)
-    pesos = {}
-    soma_p = 0.0
-    for idx, (classe, nome) in enumerate(selecao_combinada):
-        with cols_p[idx]:
-            p_val = st.number_input(
-                f"% {nome} ({classe})",
-                min_value=0.0,
-                max_value=100.0,
-                value=peso_padrao,
-                step=5.0,
-                key=f"peso_{classe}_{nome}"
-            )
-            pesos[(classe, nome)] = p_val
-            soma_p += p_val
+# ------------------------------------------
+# ABA 3: PERCENTUAIS PERSONALIZADOS
+# ------------------------------------------
+with aba_pers:
+    st.subheader("⚖️ Percentuais Personalizados por Perfil (Conservador, Moderado, Agressivo)")
+    st.dataframe(dados_planilha["df_personalizados"], use_container_width=True, hide_index=True)
 
-    if abs(soma_p - 100.0) > 0.1:
-        st.warning(f"⚠️ A soma dos percentuais está em {soma_p:.1f}%. Ajuste para fechar em 100%.")
+# ------------------------------------------
+# ABA 4: ANÁLISE DE FIIs E RENDA FIXA
+# ------------------------------------------
+with aba_fiis_rf:
+    st.subheader("🏢 Ranking de Oportunidades — Renda Fixa e FIIs")
+    rf_default = pd.DataFrame([
+        {"Produto": "Tesouro Selic", "Tipo": "Pós-fixado (SELIC)", "Taxa_aa": round(taxa_selic_cdi, 2), "Isento_IR": False, "Prazo_Dias": 365, "Liquidez_Dias": 1, "Risco_Score": 98.0},
+        {"Produto": "CDB Liquidez Diária 100% CDI", "Tipo": "Pós-fixado (CDI)", "Taxa_aa": round(taxa_selic_cdi, 2), "Isento_IR": False, "Prazo_Dias": 365, "Liquidez_Dias": 1, "Risco_Score": 82.0},
+        {"Produto": "LCI / LCA Prefixada ou Pós", "Tipo": "Isento IR", "Taxa_aa": round(taxa_selic_cdi * 0.86, 2), "Isento_IR": True, "Prazo_Dias": 365, "Liquidez_Dias": 90, "Risco_Score": 80.0},
+        {"Produto": "Tesouro IPCA+ (Juro Real)", "Tipo": "IPCA + Juros", "Taxa_aa": round(ipca_projetado + 6.5, 2), "Isento_IR": False, "Prazo_Dias": 730, "Liquidez_Dias": 2, "Risco_Score": 90.0},
+    ])
+    df_rf_rank = avaliar_renda_fixa(rf_default, taxa_selic_cdi, ipca_projetado, capital_total, horizonte_meses)
+    fiis_lista = ["KNCR11.SA", "XPML11.SA", "HGLG11.SA", "XPLG11.SA", "MXRF11.SA", "VISC11.SA", "RECR11.SA", "CPTS11.SA"]
+    df_fii_rank, df_fii_precos = avaliar_fiis(tuple(fiis_lista), capital_total, horizonte_meses, ir_ganho_capital_fii)
 
-    col_lucro_rf = f"Lucro Líquido {horizonte_meses}m (R$)"
-    col_lucro_fii = f"Lucro Líquido {horizonte_meses}m (R$)"
-    linhas_plano = []
-    for classe, nome in selecao_combinada:
-        p = pesos[(classe, nome)]
-        valor_aloc = round(capital_total * (p / 100.0), 2)
-        if classe == "Renda Fixa":
-            row_rf = df_rf_rank[df_rf_rank["Produto"] == nome].iloc[0]
-            lucro_unit_base = float(row_rf[col_lucro_rf])
-            lucro_liq_aloc = round(lucro_unit_base * (valor_aloc / max(capital_total, 1.0)), 2)
-            taxa_liq = float(row_rf["Taxa Líq. Est. (% a.a.)"])
-            linhas_plano.append({
-                "Classe": "Renda Fixa",
-                "Ativo / Produto": nome,
-                "Score": row_rf["Score"],
-                "Peso (%)": p,
-                "Valor Alocado (R$)": valor_aloc,
-                "Ref. / Qtd.": f"Taxa líq. ~{taxa_liq:.2f}% a.a. | IR {row_rf['IR Est. (%)']}%",
-                f"Lucro Líquido {horizonte_meses}m (R$)": lucro_liq_aloc
-            })
-        else:
-            row_fii = df_fii_rank[df_fii_rank["Ticker"] == nome].iloc[0]
-            preco_fii = float(row_fii["Preço (R$)"])
-            qtd_fii = int(valor_aloc // preco_fii) if preco_fii > 0 else 0
-            custo_efetivo = qtd_fii * preco_fii
-            lucro_unit_base = float(row_fii[col_lucro_fii])
-            lucro_liq_aloc = round(lucro_unit_base * (custo_efetivo / max(capital_total, 1.0)), 2)
-            linhas_plano.append({
-                "Classe": "FII",
-                "Ativo / Produto": nome,
-                "Score": row_fii["Score"],
-                "Peso (%)": p,
-                "Valor Alocado (R$)": valor_aloc,
-                "Ref. / Qtd.": f"{qtd_fii} cotas (~R$ {preco_fii:.2f})",
-                f"Lucro Líquido {horizonte_meses}m (R$)": lucro_liq_aloc
-            })
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Top Renda Fixa**")
+        st.dataframe(df_rf_rank, use_container_width=True, hide_index=True)
+    with c2:
+        st.markdown("**Top FIIs**")
+        st.dataframe(df_fii_rank, use_container_width=True, hide_index=True)
 
-    df_plano = pd.DataFrame(linhas_plano)
-    st.subheader("💼 Plano de Alocação Combinado (Renda Fixa + FIIs)")
-    st.dataframe(df_plano, use_container_width=True, hide_index=True)
-    col_col_lucro = f"Lucro Líquido {horizonte_meses}m (R$)"
-    st.metric(f"Lucro Líquido Estimado após Impostos ({horizonte_meses}m)", f"R$ {df_plano[col_col_lucro].sum():,.2f}")
-
-st.divider()
-
-# ==========================================
-# 6. EVOLUÇÃO HISTÓRICA DOS FIIs (30 A 360 DIAS)
-# ==========================================
-st.subheader("📈 Evolução Histórica das Cotas de FIIs")
-if not df_fii_precos.empty:
-    c_g1, c_g2 = st.columns(2)
-    with c_g1:
-        escopo_fii_graf = st.radio(
-            "Quais FIIs exibir no gráfico?",
-            options=["Apenas os FIIs escolhidos", "Todos os FIIs avaliados"]
-        )
-    with c_g2:
-        periodo_fii = st.selectbox(
-            "Período (dias)",
-            options=[30, 60, 90, 180, 240, 300, 360],
-            index=3
-        )
-
-    tks_graf = [t for t in (fiis_escolhidos if escopo_fii_graf == "Apenas os FIIs escolhidos" else opcoes_fii_all) if t in df_fii_precos.columns]
-    if tks_graf:
-        dt_ini = df_fii_precos.index.max() - pd.Timedelta(days=periodo_fii)
-        rec = df_fii_precos.loc[df_fii_precos.index >= dt_ini, tks_graf].dropna(how="all")
-        if len(rec) >= 2:
-            prim = rec.apply(lambda c: c.dropna().iloc[0] if not c.dropna().empty else np.nan)
-            plot_df = ((rec / prim) - 1.0) * 100.0
-            st.line_chart(plot_df, use_container_width=True)
-
-st.caption(
-    "Aviso: Ferramenta educacional e quantitativa de apoio à análise. Estimativas de impostos são simplificadas "
-    "e não substituem regras fiscais específicas ou assessoria tributária/financeira."
-)
+# ------------------------------------------
+# ABA 5: EVOLUÇÃO HISTÓRICA (30 A 360 DIAS)
+# ------------------------------------------
+with aba_evolucao:
+    st.subheader("📈 Evolução Histórica dos Ativos da Carteira (30 a 360 dias)")
+    ativos_rv = dados_planilha["df_carteira"][dados_planilha["df_carteira"]["Classe"].isin(["Ação", "FII"])]["Ativo"].tolist()
+    periodo_dias = st.selectbox("Período (dias):", options=[30, 60, 90, 180, 240, 300, 360], index=3)
+    if ativos_rv:
+        raw_hist = yf.download(ativos_rv, period="1y", interval="1d", group_by="ticker", auto_adjust=True, progress=False)
+        series_dict = {}
+        for tk in ativos_rv:
+            try:
+                s = raw_hist[tk]["Close"].dropna() if isinstance(raw_hist.columns, pd.MultiIndex) else raw_hist["Close"].dropna()
+                if not s.empty:
+                    series_dict[tk] = s
+            except Exception:
+                continue
+        if series_dict:
+            df_h = pd.DataFrame(series_dict).sort_index()
+            dt_corte = df_h.index.max() - pd.Timedelta(days=periodo_dias)
+            rec = df_h.loc[df_h.index >= dt_corte].dropna(how="all")
+            if len(rec) >= 2:
+                prim = rec.apply(lambda c: c.dropna().iloc[0] if not c.dropna().empty else np.nan)
+                st.line_chart(((rec / prim) - 1.0) * 100.0, use_container_width=True)
